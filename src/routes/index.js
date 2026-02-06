@@ -17,6 +17,17 @@ const filesRouter = require('./files');
 const databasesRouter = require('./databases');
 const domainsRouter = require('./domains');
 
+// Health check de l'API (public, avant tout middleware d'auth)
+router.get('/health', (req, res) => {
+    res.json({
+        success: true,
+        status: 'ok',
+        version: process.env.TWOINE_VERSION || '1.0.0',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+    });
+});
+
 // Routes d'authentification (publiques)
 router.use('/auth', authRouter);
 
@@ -44,17 +55,6 @@ router.use('/', databasesRouter);
 
 // Routes domaines (montées sur /api)
 router.use('/', domainsRouter);
-
-// Health check de l'API
-router.get('/health', (req, res) => {
-    res.json({
-        success: true,
-        status: 'ok',
-        version: process.env.TWOINE_VERSION || '1.0.0',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-    });
-});
 
 // Documentation des endpoints
 router.get('/', (req, res) => {
