@@ -3,7 +3,7 @@ Description=Twoine Platform Services
 Documentation=https://github.com/Antoine601/Twoine
 After=network.target mongod.service nginx.service
 Requires=mongod.service
-Wants=twoine-api.service twoine-worker.service twoine-supervisor.service nginx.service
+Wants=twoine-api.service twoine-worker.service twoine-supervisor.service
 
 [Install]
 WantedBy=multi-user.target

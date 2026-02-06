@@ -9,14 +9,16 @@ Type=simple
 User=twoine
 Group=twoine
 WorkingDirectory=/opt/twoine/app
-ExecStart=/usr/bin/node src/server.js
+ExecStart=/usr/bin/node src/app.js
 Restart=always
 RestartSec=10
 
-StandardOutput=append:/var/log/twoine/app/twoine.log
-StandardError=append:/var/log/twoine/app/twoine-error.log
+StandardOutput=append:/var/log/twoine/api/twoine-api.log
+StandardError=append:/var/log/twoine/api/twoine-api-error.log
 
 Environment=NODE_ENV=production
+Environment=PORT=3000
+EnvironmentFile=-/opt/twoine/app/.env
 
 NoNewPrivileges=true
 ProtectSystem=strict

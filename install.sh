@@ -1054,143 +1054,8 @@ copy_local_files() {
     log_success "Fichiers locaux copiés"
 }
 
-create_placeholder_app() {
-    mkdir -p "$DEFAULT_INSTALL_DIR/app"
-    
-    cat > "$DEFAULT_INSTALL_DIR/app/package.json" << 'PKGJSON'
-{
-  "name": "twoine",
-  "version": "1.0.0",
-  "description": "Twoine - Self-Hosting Platform",
-  "main": "src/server.js",
-  "scripts": {
-    "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
-  },
-  "dependencies": {
-    "express": "^4.18.2",
-    "mongoose": "^8.0.0",
-    "jsonwebtoken": "^9.0.2",
-    "bcryptjs": "^2.4.3",
-    "dotenv": "^16.3.1",
-    "cors": "^2.8.5",
-    "helmet": "^7.1.0",
-    "morgan": "^1.10.0",
-    "express-rate-limit": "^7.1.5",
-    "express-validator": "^7.0.1",
-    "nodemailer": "^6.9.7"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.2"
-  },
-  "engines": {
-    "node": ">=20.0.0"
-  }
-}
-PKGJSON
-
-    mkdir -p "$DEFAULT_INSTALL_DIR/app/src"
-    
-    cat > "$DEFAULT_INSTALL_DIR/app/src/server.js" << 'SERVERJS'
-require('dotenv').config();
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const helmet = require('helmet');
-const morgan = require('morgan');
-const path = require('path');
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.use(helmet());
-app.use(cors());
-app.use(morgan('combined'));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-app.use(express.static(path.join(__dirname, '../public')));
-
-app.get('/api/health', (req, res) => {
-    res.json({ 
-        status: 'ok', 
-        version: process.env.TWOINE_VERSION || '1.0.0',
-        uptime: process.uptime()
-    });
-});
-
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../public/index.html'));
-});
-
-mongoose.connect(process.env.MONGODB_URI)
-    .then(() => {
-        console.log('Connected to MongoDB');
-        app.listen(PORT, () => {
-            console.log(`Twoine server running on port ${PORT}`);
-        });
-    })
-    .catch(err => {
-        console.error('MongoDB connection error:', err);
-        process.exit(1);
-    });
-SERVERJS
-
-    mkdir -p "$DEFAULT_INSTALL_DIR/app/public"
-    
-    cat > "$DEFAULT_INSTALL_DIR/app/public/index.html" << 'INDEXHTML'
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Twoine - Self-Hosting Platform</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #fff;
-        }
-        .container {
-            text-align: center;
-            padding: 2rem;
-        }
-        h1 {
-            font-size: 4rem;
-            margin-bottom: 1rem;
-            background: linear-gradient(90deg, #00d9ff, #00ff88);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        p { color: #8892b0; font-size: 1.2rem; margin-bottom: 2rem; }
-        .status {
-            background: rgba(255,255,255,0.1);
-            padding: 1rem 2rem;
-            border-radius: 8px;
-            display: inline-block;
-        }
-        .status.ok { border-left: 4px solid #00ff88; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>TWOINE</h1>
-        <p>Self-Hosting Platform - Installation Complete</p>
-        <div class="status ok">
-            <strong>Status:</strong> Running
-        </div>
-    </div>
-</body>
-</html>
-INDEXHTML
-
-    chown -R twoine:twoine "$DEFAULT_INSTALL_DIR/app"
-}
+# NOTE: Placeholder app removed - the real application is in src/app.js
+# If git clone fails, copy_local_files() is used instead.
 
 generate_env_file() {
     log_info "Generating environment configuration..."
@@ -1214,7 +1079,7 @@ generate_env_file() {
 
 # Application
 NODE_ENV=production
-PORT=${DEFAULT_PORT}
+PORT=${API_PORT}
 TWOINE_VERSION=${TWOINE_VERSION}
 
 # Security
@@ -1389,7 +1254,7 @@ StandardError=append:${DEFAULT_LOG_DIR}/api/twoine-api-error.log
 
 Environment=NODE_ENV=production
 Environment=PORT=${API_PORT}
-EnvironmentFile=${DEFAULT_INSTALL_DIR}/app/.env
+EnvironmentFile=-${DEFAULT_INSTALL_DIR}/app/.env
 
 NoNewPrivileges=true
 ProtectSystem=strict
@@ -1405,83 +1270,19 @@ SYSTEMD
 }
 
 create_admin_panel_service() {
-    log_info "  → Service Admin Panel (twoine-admin, port $ADMIN_PANEL_PORT)..."
-    
-    cat > /etc/systemd/system/twoine-admin.service << SYSTEMD
-[Unit]
-Description=Twoine Admin Panel
-Documentation=https://github.com/Antoine601/Twoine
-After=network.target twoine-api.service
-Wants=twoine-api.service
-
-[Service]
-Type=simple
-User=twoine
-Group=twoine
-WorkingDirectory=${DEFAULT_INSTALL_DIR}/app/admin-panel
-ExecStart=${DEFAULT_INSTALL_DIR}/app/admin-panel/node_modules/.bin/vite preview --host 127.0.0.1 --port ${ADMIN_PANEL_PORT}
-Restart=always
-RestartSec=10
-TimeoutStartSec=60
-TimeoutStopSec=30
-
-StandardOutput=append:${DEFAULT_LOG_DIR}/admin-panel/admin.log
-StandardError=append:${DEFAULT_LOG_DIR}/admin-panel/admin-error.log
-
-Environment=NODE_ENV=production
-Environment=PORT=${ADMIN_PANEL_PORT}
-
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=${DEFAULT_LOG_DIR}/admin-panel
-PrivateTmp=true
-
-[Install]
-WantedBy=multi-user.target
-SYSTEMD
-
-    SERVICES_INSTALLED+=("twoine-admin")
+    log_info "  → Admin Panel: servi en statique via Nginx (pas de service systemd)"
+    # Admin panel is built to static files and served directly by Nginx.
+    # No systemd service needed - the built files are in:
+    #   ${DEFAULT_INSTALL_DIR}/app/admin-panel/dist/
+    # Nginx serves them at /admin/
 }
 
 create_user_panel_service() {
-    log_info "  → Service User Panel (twoine-user, port $USER_PANEL_PORT)..."
-    
-    cat > /etc/systemd/system/twoine-user.service << SYSTEMD
-[Unit]
-Description=Twoine User Panel
-Documentation=https://github.com/Antoine601/Twoine
-After=network.target twoine-api.service
-Wants=twoine-api.service
-
-[Service]
-Type=simple
-User=twoine
-Group=twoine
-WorkingDirectory=${DEFAULT_INSTALL_DIR}/app/user-panel
-ExecStart=${DEFAULT_INSTALL_DIR}/app/user-panel/node_modules/.bin/vite preview --host 127.0.0.1 --port ${USER_PANEL_PORT}
-Restart=always
-RestartSec=10
-TimeoutStartSec=60
-TimeoutStopSec=30
-
-StandardOutput=append:${DEFAULT_LOG_DIR}/user-panel/user.log
-StandardError=append:${DEFAULT_LOG_DIR}/user-panel/user-error.log
-
-Environment=NODE_ENV=production
-Environment=PORT=${USER_PANEL_PORT}
-
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=${DEFAULT_LOG_DIR}/user-panel
-PrivateTmp=true
-
-[Install]
-WantedBy=multi-user.target
-SYSTEMD
-
-    SERVICES_INSTALLED+=("twoine-user")
+    log_info "  → User Panel: servi en statique via Nginx (pas de service systemd)"
+    # User panel is built to static files and served directly by Nginx.
+    # No systemd service needed - the built files are in:
+    #   ${DEFAULT_INSTALL_DIR}/app/user-panel/dist/
+    # Nginx serves them at /
 }
 
 create_worker_service() {
@@ -1509,7 +1310,7 @@ StandardOutput=append:${DEFAULT_LOG_DIR}/worker/worker.log
 StandardError=append:${DEFAULT_LOG_DIR}/worker/worker-error.log
 
 Environment=NODE_ENV=production
-EnvironmentFile=${DEFAULT_INSTALL_DIR}/app/.env
+EnvironmentFile=-${DEFAULT_INSTALL_DIR}/app/.env
 
 NoNewPrivileges=true
 ProtectSystem=strict
@@ -1549,7 +1350,7 @@ StandardOutput=append:${DEFAULT_LOG_DIR}/supervisor/supervisor.log
 StandardError=append:${DEFAULT_LOG_DIR}/supervisor/supervisor-error.log
 
 Environment=NODE_ENV=production
-EnvironmentFile=${DEFAULT_INSTALL_DIR}/app/.env
+EnvironmentFile=-${DEFAULT_INSTALL_DIR}/app/.env
 
 NoNewPrivileges=true
 ProtectSystem=strict
@@ -1573,7 +1374,7 @@ Description=Twoine Platform Services
 Documentation=https://github.com/Antoine601/Twoine
 After=network.target mongod.service
 Requires=mongod.service
-Wants=twoine-api.service twoine-admin.service twoine-user.service twoine-worker.service twoine-supervisor.service
+Wants=twoine-api.service twoine-worker.service twoine-supervisor.service
 
 [Install]
 WantedBy=multi-user.target
@@ -1595,19 +1396,34 @@ enable_and_start_services() {
     # Start services in order
     log_info "  → Démarrage twoine-api..."
     execute systemctl start twoine-api.service
-    sleep 3
     
-    log_info "  → Démarrage twoine-admin..."
-    execute systemctl start twoine-admin.service || log_warning "Admin panel service start delayed"
+    # Wait for API to actually listen on port
+    log_info "  → Vérification que l'API écoute sur le port ${API_PORT}..."
+    local api_ready=false
+    for i in $(seq 1 15); do
+        if ss -tlnp 2>/dev/null | grep -q ":${API_PORT} " || \
+           curl -sf http://localhost:${API_PORT}/health >/dev/null 2>&1; then
+            api_ready=true
+            break
+        fi
+        sleep 1
+    done
     
-    log_info "  → Démarrage twoine-user..."
-    execute systemctl start twoine-user.service || log_warning "User panel service start delayed"
+    if [ "$api_ready" = true ]; then
+        log_success "  ✓ API écoute sur le port ${API_PORT}"
+    else
+        log_error "  ✗ API ne répond PAS sur le port ${API_PORT} après 15s"
+        log_error "    Vérifiez les logs: journalctl -u twoine-api -n 50"
+        log_error "    Vérifiez le .env: cat ${DEFAULT_INSTALL_DIR}/app/.env"
+    fi
     
     log_info "  → Démarrage twoine-worker..."
     execute systemctl start twoine-worker.service
     
     log_info "  → Démarrage twoine-supervisor..."
     execute systemctl start twoine-supervisor.service
+    
+    log_info "  → Admin et User panels servis en statique via Nginx (pas de service)"
     
     # Track started services
     for service in "${SERVICES_INSTALLED[@]}"; do
@@ -1665,15 +1481,7 @@ upstream twoine_api {
     keepalive 64;
 }
 
-upstream twoine_admin {
-    server 127.0.0.1:${ADMIN_PANEL_PORT};
-    keepalive 32;
-}
-
-upstream twoine_user {
-    server 127.0.0.1:${USER_PANEL_PORT};
-    keepalive 32;
-}
+# Admin and User panels are served as static files (no upstream needed)
 
 # HTTP -> HTTPS Redirect
 server {
@@ -1776,15 +1584,14 @@ server {
     }
 
     # =========================================================================
-    # Admin Panel (path-based routing)
+    # Admin Panel (static files from build)
     # =========================================================================
     
     location /admin/ {
-        limit_req zone=twoine_general burst=50 nodelay;
-        proxy_pass http://twoine_admin/;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_cache_bypass \$http_upgrade;
+        alias ${DEFAULT_INSTALL_DIR}/app/admin-panel/dist/;
+        try_files \$uri \$uri/ /admin/index.html;
+        expires 7d;
+        add_header Cache-Control "public, immutable";
     }
 
     location /admin {
@@ -1792,20 +1599,17 @@ server {
     }
 
     # =========================================================================
-    # User Panel (default - root)
+    # User Panel (static files from build - default root)
     # =========================================================================
     
     location / {
-        limit_req zone=twoine_general burst=50 nodelay;
-        proxy_pass http://twoine_user;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_cache_bypass \$http_upgrade;
+        root ${DEFAULT_INSTALL_DIR}/app/user-panel/dist;
+        try_files \$uri \$uri/ /index.html;
     }
 
     # Static assets caching
     location ~* \.(jpg|jpeg|png|gif|ico|css|js|woff|woff2|ttf|svg|eot)$ {
-        proxy_pass http://twoine_user;
+        root ${DEFAULT_INSTALL_DIR}/app/user-panel/dist;
         expires 7d;
         add_header Cache-Control "public, immutable";
         access_log off;
@@ -2071,7 +1875,7 @@ install_production_systemd() {
         execute systemctl daemon-reload
         execute systemctl enable twoine.target 2>/dev/null || true
 
-        for service in twoine-api twoine-admin twoine-user twoine-worker twoine-supervisor; do
+        for service in twoine-api twoine-worker twoine-supervisor; do
             if systemctl list-unit-files | grep -q "^${service}.service"; then
                 execute systemctl enable "${service}.service" 2>/dev/null || true
             fi
@@ -2152,10 +1956,10 @@ print_summary() {
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "  ${GREEN}twoine-api${NC}        (port ${API_PORT})     - API Backend"
-    echo -e "  ${GREEN}twoine-admin${NC}      (port ${ADMIN_PANEL_PORT})   - Interface Admin"
-    echo -e "  ${GREEN}twoine-user${NC}       (port ${USER_PANEL_PORT})   - Interface Utilisateur"
     echo -e "  ${GREEN}twoine-worker${NC}                    - Worker interne"
     echo -e "  ${GREEN}twoine-supervisor${NC}                - Service de supervision"
+    echo -e "  ${GREEN}admin-panel${NC}       (Nginx static) - Interface Admin"
+    echo -e "  ${GREEN}user-panel${NC}        (Nginx static) - Interface Utilisateur"
     echo ""
     echo -e "  Services démarrés: ${GREEN}${#SERVICES_STARTED[@]}/${#SERVICES_INSTALLED[@]}${NC}"
     echo ""
@@ -2218,9 +2022,9 @@ run_finalization() {
     # Verify services are running
     log_info "Vérification des services..."
     local services_ok=0
-    local services_total=5
+    local services_total=3
     
-    for service in twoine-api twoine-admin twoine-user twoine-worker twoine-supervisor; do
+    for service in twoine-api twoine-worker twoine-supervisor; do
         if systemctl is-active --quiet "$service" 2>/dev/null; then
             ((services_ok++))
             log_success "  ✓ $service actif"
