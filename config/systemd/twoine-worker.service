@@ -1,0 +1,79 @@
+[Unit]
+Description=Twoine Background Worker
+Documentation=https://github.com/Antoine601/Twoine
+After=network.target mongod.service twoine-api.service
+Requires=mongod.service
+Wants=twoine-api.service
+PartOf=twoine.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=twoine
+Group=twoine
+WorkingDirectory=/opt/twoine/app
+
+# Commande de démarrage
+ExecStart=/usr/bin/node src/worker.js
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Politique de redémarrage
+Restart=always
+RestartSec=15
+
+# Environnement
+Environment=NODE_ENV=production
+EnvironmentFile=-/opt/twoine/app/.env
+
+# Logging via journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=twoine-worker
+
+# ============================================================================
+# SÉCURITÉ
+# ============================================================================
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/www/twoine /var/log/twoine /opt/twoine/tmp
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# ============================================================================
+# LIMITES DE RESSOURCES
+# ============================================================================
+
+# Limite mémoire (256 MB)
+MemoryMax=256M
+MemoryHigh=220M
+
+# Limite CPU (50%)
+CPUQuota=50%
+
+# Limite fichiers
+LimitNOFILE=65535
+LimitNPROC=2048
+
+# ============================================================================
+# TIMEOUTS
+# ============================================================================
+
+TimeoutStartSec=30
+TimeoutStopSec=60
+
+[Install]
+WantedBy=twoine.target

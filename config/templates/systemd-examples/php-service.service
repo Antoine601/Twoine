@@ -1,0 +1,51 @@
+# ============================================================================
+# EXEMPLE: Service PHP (Laravel/Symfony)
+# Site: mysite / Service: backend
+# ============================================================================
+
+[Unit]
+Description=Twoine Service: mysite/backend (PHP Laravel Backend)
+Documentation=https://github.com/Antoine601/Twoine
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=site_mysite
+Group=site_mysite
+WorkingDirectory=/var/www/sites/mysite/services/backend
+
+# PHP avec artisan serve (Laravel)
+ExecStart=/usr/bin/php artisan serve --host=127.0.0.1 --port=10003
+
+# Alternative: PHP built-in server
+# ExecStart=/usr/bin/php -S 127.0.0.1:10003 -t public
+
+Restart=always
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+# Environment
+Environment=APP_ENV=production
+Environment=PORT=10003
+EnvironmentFile=-/var/www/sites/mysite/services/backend/.env
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/www/sites/mysite/services/backend /var/www/sites/mysite/logs /var/www/sites/mysite/data /var/www/sites/mysite/tmp
+PrivateTmp=true
+
+# Resources
+MemoryMax=256M
+CPUQuota=50%
+
+# Logging
+StandardOutput=append:/var/www/sites/mysite/logs/backend.log
+StandardError=append:/var/www/sites/mysite/logs/backend-error.log
+
+[Install]
+WantedBy=multi-user.target

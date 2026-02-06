@@ -1,0 +1,169 @@
+# =============================================================================
+# TWOINE - OpenSSH Server Configuration Example
+# /etc/ssh/sshd_config
+# =============================================================================
+# This is an example configuration for OpenSSH to work with Twoine's
+# chrooted SFTP system. Copy relevant sections to your sshd_config.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# GENERAL SETTINGS
+# -----------------------------------------------------------------------------
+
+# Port (default 22, can be changed for security)
+Port 22
+
+# Protocol version
+Protocol 2
+
+# Listen addresses
+ListenAddress 0.0.0.0
+#ListenAddress ::
+
+# Host keys
+HostKey /etc/ssh/ssh_host_rsa_key
+HostKey /etc/ssh/ssh_host_ecdsa_key
+HostKey /etc/ssh/ssh_host_ed25519_key
+
+# -----------------------------------------------------------------------------
+# AUTHENTICATION
+# -----------------------------------------------------------------------------
+
+# Disable root login
+PermitRootLogin no
+
+# Enable password authentication (required for SFTP users)
+PasswordAuthentication yes
+
+# Enable public key authentication
+PubkeyAuthentication yes
+
+# Disable empty passwords
+PermitEmptyPasswords no
+
+# Maximum authentication attempts
+MaxAuthTries 3
+
+# Login grace time
+LoginGraceTime 60
+
+# -----------------------------------------------------------------------------
+# SECURITY
+# -----------------------------------------------------------------------------
+
+# Use privilege separation
+UsePrivilegeSeparation sandbox
+
+# Strict mode (check file permissions)
+StrictModes yes
+
+# Disable X11 forwarding globally
+X11Forwarding no
+
+# Disable TCP forwarding globally
+AllowTcpForwarding no
+
+# Disable agent forwarding globally
+AllowAgentForwarding no
+
+# Disable tunneling
+PermitTunnel no
+
+# -----------------------------------------------------------------------------
+# LOGGING
+# -----------------------------------------------------------------------------
+
+# Log level
+LogLevel INFO
+
+# Syslog facility
+SyslogFacility AUTH
+
+# -----------------------------------------------------------------------------
+# SFTP SUBSYSTEM
+# -----------------------------------------------------------------------------
+
+# Default SFTP subsystem (for non-chrooted users)
+Subsystem sftp /usr/lib/openssh/sftp-server
+
+# Include Twoine-specific configuration
+Include /etc/ssh/sshd_config.d/*.conf
+
+# =============================================================================
+# TWOINE SFTP CHROOT CONFIGURATION
+# =============================================================================
+# This block should be placed in /etc/ssh/sshd_config.d/twoine-sftp.conf
+# or at the END of sshd_config (Match blocks must be at the end)
+# =============================================================================
+
+# Match all users in the sftpusers group (Twoine site users)
+Match Group sftpusers
+    # Force internal SFTP subsystem (required for chroot)
+    # -u 0002: default umask for new files (group writable)
+    # -l INFO: log level
+    ForceCommand internal-sftp -u 0002 -l INFO
+    
+    # Chroot to the site directory
+    # %u is replaced by the username (e.g., site_mysite)
+    # The chroot directory MUST be owned by root with 755 permissions
+    ChrootDirectory /var/www/sites/%u
+    
+    # Disable all forwarding (security)
+    AllowTcpForwarding no
+    X11Forwarding no
+    PermitTunnel no
+    AllowAgentForwarding no
+    
+    # Disable TTY (no shell access)
+    PermitTTY no
+    
+    # Authentication methods
+    PasswordAuthentication yes
+    PubkeyAuthentication yes
+    
+    # Logging
+    LogLevel VERBOSE
+
+# =============================================================================
+# ALTERNATIVE: Per-user chroot (if username doesn't match directory)
+# =============================================================================
+# If your site directories don't follow the site_<name> pattern,
+# you can use per-user Match blocks:
+#
+# Match User site_example
+#     ForceCommand internal-sftp -u 0002
+#     ChrootDirectory /var/www/sites/example
+#     AllowTcpForwarding no
+#     X11Forwarding no
+#     PermitTunnel no
+#     AllowAgentForwarding no
+#     PermitTTY no
+
+# =============================================================================
+# NOTES
+# =============================================================================
+# 
+# 1. CHROOT REQUIREMENTS:
+#    - ChrootDirectory must be owned by root:root
+#    - ChrootDirectory must have 755 permissions (no group/other write)
+#    - Subdirectories can be owned by the user
+#
+# 2. DIRECTORY STRUCTURE:
+#    /var/www/sites/site_mysite/     <- owned by root:root (755)
+#    ├── services/                    <- owned by site_mysite:sftpusers (755)
+#    ├── data/                        <- owned by site_mysite:sftpusers (755)
+#    ├── uploads/                     <- owned by site_mysite:sftpusers (755)
+#    ├── logs/                        <- owned by site_mysite:sftpusers (755)
+#    └── tmp/                         <- owned by site_mysite:sftpusers (700)
+#
+# 3. TESTING:
+#    - Validate config: sudo sshd -t
+#    - Test connection: sftp site_mysite@localhost
+#    - Check logs: journalctl -u sshd -f
+#
+# 4. TROUBLESHOOTING:
+#    - "Connection closed": Check ChrootDirectory ownership/permissions
+#    - "Permission denied": Check user password or SSH keys
+#    - "Subsystem request failed": Verify ForceCommand is correct
+#
+# =============================================================================

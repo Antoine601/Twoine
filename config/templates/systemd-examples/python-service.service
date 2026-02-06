@@ -1,0 +1,51 @@
+# ============================================================================
+# EXEMPLE: Service Python (FastAPI/Flask)
+# Site: mysite / Service: api
+# ============================================================================
+
+[Unit]
+Description=Twoine Service: mysite/api (Python FastAPI Backend)
+Documentation=https://github.com/Antoine601/Twoine
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=site_mysite
+Group=site_mysite
+WorkingDirectory=/var/www/sites/mysite/services/api
+
+# Python avec uvicorn (FastAPI)
+ExecStart=/usr/bin/python3 -m uvicorn main:app --host 127.0.0.1 --port 10002
+
+# Alternative: Flask avec gunicorn
+# ExecStart=/usr/bin/python3 -m gunicorn --bind 127.0.0.1:10002 --workers 2 app:app
+
+Restart=always
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+Environment=PORT=10002
+EnvironmentFile=-/var/www/sites/mysite/services/api/.env
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/www/sites/mysite/services/api /var/www/sites/mysite/logs /var/www/sites/mysite/data /var/www/sites/mysite/tmp
+PrivateTmp=true
+
+# Resources
+MemoryMax=256M
+CPUQuota=50%
+
+# Logging
+StandardOutput=append:/var/www/sites/mysite/logs/api.log
+StandardError=append:/var/www/sites/mysite/logs/api-error.log
+
+[Install]
+WantedBy=multi-user.target

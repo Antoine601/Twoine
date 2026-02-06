@@ -1,0 +1,100 @@
+[Unit]
+Description=Twoine API Server
+Documentation=https://github.com/Antoine601/Twoine
+After=network.target mongod.service
+Requires=mongod.service
+PartOf=twoine.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=twoine
+Group=twoine
+WorkingDirectory=/opt/twoine/app
+
+# Commande de démarrage
+ExecStart=/usr/bin/node src/app.js
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Politique de redémarrage
+Restart=always
+RestartSec=10
+WatchdogSec=60
+
+# Environnement
+Environment=NODE_ENV=production
+Environment=PORT=3000
+EnvironmentFile=-/opt/twoine/app/.env
+
+# Logging via journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=twoine-api
+
+# ============================================================================
+# SÉCURITÉ - Isolation du service
+# ============================================================================
+
+# Empêcher l'acquisition de nouveaux privilèges
+NoNewPrivileges=true
+
+# Système de fichiers en lecture seule sauf exceptions
+ProtectSystem=strict
+ProtectHome=read-only
+
+# Répertoires accessibles en écriture
+ReadWritePaths=/var/www/twoine /var/log/twoine /opt/twoine/tmp
+
+# Répertoire temporaire privé
+PrivateTmp=true
+
+# Protéger les répertoires sensibles
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+
+# Restreindre les capabilities
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Restreindre les namespaces
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+
+# Filtrage seccomp retiré (provoquait des SIGSYS sur certaines versions de Node.js/systemd)
+SystemCallArchitectures=native
+
+# Réseau
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# ============================================================================
+# LIMITES DE RESSOURCES
+# ============================================================================
+
+# Limite mémoire (512 MB)
+MemoryMax=512M
+MemoryHigh=450M
+
+# Limite CPU (100%)
+CPUQuota=100%
+
+# Limite nombre de fichiers ouverts
+LimitNOFILE=65535
+
+# Limite nombre de processus
+LimitNPROC=4096
+
+# ============================================================================
+# TIMEOUTS
+# ============================================================================
+
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+[Install]
+WantedBy=twoine.target multi-user.target

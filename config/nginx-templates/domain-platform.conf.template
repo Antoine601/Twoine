@@ -1,0 +1,141 @@
+# ===============================================================================
+# TWOINE - Nginx Template: Platform Domain
+# Template pour le domaine principal de la plateforme Twoine
+#
+# Ce template est utilisé pour l'interface admin et user de Twoine
+#
+# Variables à remplacer:
+#   {{DOMAIN}}         - Nom de domaine (ex: twoine.example.com)
+#   {{TARGET_PORT}}    - Port de l'application Twoine (ex: 3000)
+#   {{CERT_PATH}}      - Chemin du certificat SSL
+#   {{KEY_PATH}}       - Chemin de la clé privée SSL
+#   {{GENERATED_DATE}} - Date de génération
+# ===============================================================================
+
+# Redirection HTTP vers HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{DOMAIN}};
+
+    # Redirection permanente vers HTTPS
+    return 301 https://$server_name$request_uri;
+}
+
+# Serveur HTTPS - Plateforme Twoine
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name {{DOMAIN}};
+
+    # =========================================================================
+    # Configuration SSL
+    # =========================================================================
+    
+    ssl_certificate     {{CERT_PATH}};
+    ssl_certificate_key {{KEY_PATH}};
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_tickets off;
+
+    # =========================================================================
+    # Headers de sécurité renforcés pour la plateforme
+    # =========================================================================
+    
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+
+    # =========================================================================
+    # Logs
+    # =========================================================================
+    
+    access_log /var/log/nginx/twoine-platform.access.log;
+    error_log /var/log/nginx/twoine-platform.error.log;
+
+    # =========================================================================
+    # Rate limiting (protection anti-bruteforce)
+    # =========================================================================
+    
+    # Zone de limitation définie dans nginx.conf:
+    # limit_req_zone $binary_remote_addr zone=twoine_api:10m rate=10r/s;
+    
+    # =========================================================================
+    # API Twoine
+    # =========================================================================
+    
+    location /api/ {
+        # Rate limiting pour l'API
+        # limit_req zone=twoine_api burst=20 nodelay;
+        
+        proxy_pass http://127.0.0.1:{{TARGET_PORT}};
+        proxy_http_version 1.1;
+        
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        proxy_cache_bypass $http_upgrade;
+        
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 300s;
+        
+        # Désactiver le buffering pour les événements SSE
+        proxy_buffering off;
+    }
+
+    # =========================================================================
+    # Interface Web (Admin/User)
+    # =========================================================================
+    
+    location / {
+        proxy_pass http://127.0.0.1:{{TARGET_PORT}};
+        proxy_http_version 1.1;
+        
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        proxy_cache_bypass $http_upgrade;
+        
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 86400s;
+    }
+
+    # =========================================================================
+    # Sécurité
+    # =========================================================================
+    
+    # Deny access to hidden files
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
+    # Health check endpoint (pas de log)
+    location = /api/health {
+        proxy_pass http://127.0.0.1:{{TARGET_PORT}};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        access_log off;
+    }
+}
+
+# Généré par Twoine le {{GENERATED_DATE}}

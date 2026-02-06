@@ -1,0 +1,78 @@
+[Unit]
+Description=Twoine Supervisor Service
+Documentation=https://github.com/Antoine601/Twoine
+After=network.target twoine-api.service
+Wants=twoine-api.service
+PartOf=twoine.target
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=twoine
+Group=twoine
+WorkingDirectory=/opt/twoine/app
+
+# Commande de démarrage
+ExecStart=/usr/bin/node src/monitor.js
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Politique de redémarrage
+Restart=always
+RestartSec=30
+
+# Environnement
+Environment=NODE_ENV=production
+EnvironmentFile=-/opt/twoine/app/.env
+
+# Logging via journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=twoine-supervisor
+
+# ============================================================================
+# SÉCURITÉ
+# ============================================================================
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/log/twoine /opt/twoine/tmp
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# ============================================================================
+# LIMITES DE RESSOURCES
+# ============================================================================
+
+# Limite mémoire (128 MB)
+MemoryMax=128M
+MemoryHigh=100M
+
+# Limite CPU (25%)
+CPUQuota=25%
+
+# Limite fichiers
+LimitNOFILE=4096
+LimitNPROC=512
+
+# ============================================================================
+# TIMEOUTS
+# ============================================================================
+
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+[Install]
+WantedBy=twoine.target

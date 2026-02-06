@@ -1,0 +1,66 @@
+# ===============================================================================
+# TWOINE - Nginx Template: HTTP Only
+# Template pour domaines sans SSL
+#
+# Variables à remplacer:
+#   {{DOMAIN}}         - Nom de domaine (ex: example.com)
+#   {{TARGET_ADDRESS}} - Adresse cible (ex: 127.0.0.1)
+#   {{TARGET_PORT}}    - Port cible (ex: 3000)
+#   {{PATH_PREFIX}}    - Préfixe du path (ex: / ou /api)
+#   {{GENERATED_DATE}} - Date de génération
+# ===============================================================================
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{DOMAIN}};
+
+    # Logs
+    access_log /var/log/nginx/{{DOMAIN}}.access.log;
+    error_log /var/log/nginx/{{DOMAIN}}.error.log;
+
+    # Sécurité basique
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+
+    # Reverse proxy vers le service
+    location {{PATH_PREFIX}} {
+        proxy_pass http://{{TARGET_ADDRESS}}:{{TARGET_PORT}};
+        proxy_http_version 1.1;
+        
+        # WebSocket support
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        
+        # Headers forwarding
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+        
+        # Bypass cache for websockets
+        proxy_cache_bypass $http_upgrade;
+        
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 86400s;  # Long timeout for websockets
+        
+        # Buffering
+        proxy_buffering on;
+        proxy_buffer_size 4k;
+        proxy_buffers 8 4k;
+    }
+
+    # Deny access to hidden files
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}
+
+# Généré par Twoine le {{GENERATED_DATE}}

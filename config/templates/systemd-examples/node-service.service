@@ -1,0 +1,48 @@
+# ============================================================================
+# EXEMPLE: Service Node.js
+# Site: mysite / Service: frontend
+# ============================================================================
+
+[Unit]
+Description=Twoine Service: mysite/frontend (Frontend React App)
+Documentation=https://github.com/Antoine601/Twoine
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=site_mysite
+Group=site_mysite
+WorkingDirectory=/var/www/sites/mysite/services/frontend
+
+# Node.js avec npm start
+ExecStart=/usr/bin/npm run start
+
+Restart=always
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+# Environment
+Environment=NODE_ENV=production
+Environment=PORT=10001
+EnvironmentFile=-/var/www/sites/mysite/services/frontend/.env
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/www/sites/mysite/services/frontend /var/www/sites/mysite/logs /var/www/sites/mysite/data /var/www/sites/mysite/tmp
+PrivateTmp=true
+
+# Resources
+MemoryMax=512M
+CPUQuota=50%
+
+# Logging
+StandardOutput=append:/var/www/sites/mysite/logs/frontend.log
+StandardError=append:/var/www/sites/mysite/logs/frontend-error.log
+
+[Install]
+WantedBy=multi-user.target

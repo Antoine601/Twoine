@@ -1,0 +1,27 @@
+# ============================================================================
+# TWOINE - Configuration Cron
+# ============================================================================
+# Copier vers: /etc/cron.d/twoine
+# ============================================================================
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+# Backup quotidien à 3h00 du matin
+0 3 * * * root /usr/local/bin/twoine-backup --quiet >> /var/log/twoine/backup.log 2>&1
+
+# Nettoyage des vieux backups chaque dimanche à 4h00
+0 4 * * 0 root find /opt/twoine/backups -type f -mtime +30 -delete 2>/dev/null
+0 4 * * 0 root find /opt/twoine/backups -type d -empty -mtime +30 -delete 2>/dev/null
+
+# Validation système chaque jour à 6h00
+0 6 * * * root /usr/local/bin/twoine-validate --quiet >> /var/log/twoine/validate.log 2>&1
+
+# Nettoyage des fichiers temporaires chaque heure
+0 * * * * twoine find /opt/twoine/tmp -type f -mmin +60 -delete 2>/dev/null
+
+# Rotation des métriques toutes les 6 heures
+0 */6 * * * twoine find /var/log/twoine/metrics -type f -mtime +7 -delete 2>/dev/null
+
+# Health check toutes les 5 minutes (pour alerting externe si configuré)
+*/5 * * * * twoine curl -sf http://localhost:3000/api/health > /dev/null || echo "$(date): API health check failed" >> /var/log/twoine/health.log

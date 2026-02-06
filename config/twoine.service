@@ -1,0 +1,27 @@
+[Unit]
+Description=Twoine Self-Hosting Platform
+Documentation=https://github.com/Antoine601/Twoine
+After=network.target mongod.service
+Requires=mongod.service
+
+[Service]
+Type=simple
+User=twoine
+Group=twoine
+WorkingDirectory=/opt/twoine/app
+ExecStart=/usr/bin/node src/server.js
+Restart=always
+RestartSec=10
+
+StandardOutput=append:/var/log/twoine/app/twoine.log
+StandardError=append:/var/log/twoine/app/twoine-error.log
+
+Environment=NODE_ENV=production
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/www/twoine /var/log/twoine /opt/twoine/tmp
+
+[Install]
+WantedBy=multi-user.target
