@@ -979,33 +979,32 @@ setup_mongodb_user() {
         fi
 
         # ── Step 2: Create or update the MongoDB user (BEFORE restarting with auth) ──
-        # Try to create the user first; if it already exists, update the password
-        local user_created=false
-        mongosh --quiet --eval "
-            use twoine;
+        # Connect directly to 'twoine' database (not 'use twoine' which is unreliable in --eval)
+        log_info "  → Creating MongoDB user 'twoine'..."
+        local create_output
+        create_output=$(mongosh --quiet twoine --eval "
             try {
                 db.createUser({
                     user: 'twoine',
-                    pwd: '$mongo_password',
+                    pwd: '${mongo_password}',
                     roles: [{ role: 'readWrite', db: 'twoine' }]
                 });
                 print('USER_CREATED');
             } catch (e) {
-                if (e.codeName === 'DuplicateKey' || e.code === 51003 || e.message.includes('already exists')) {
-                    db.changeUserPassword('twoine', '$mongo_password');
+                if (e.codeName === 'DuplicateKey' || e.code === 51003 || String(e).includes('already exists')) {
+                    db.changeUserPassword('twoine', '${mongo_password}');
                     print('PASSWORD_UPDATED');
                 } else {
                     print('ERROR: ' + e.message);
-                    throw e;
                 }
             }
-        " 2>&1 | while read -r line; do
-            case "$line" in
-                USER_CREATED)    log_success "  MongoDB user 'twoine' created" ;;
-                PASSWORD_UPDATED) log_info "  MongoDB user 'twoine' password updated" ;;
-                ERROR*)          log_warning "  $line" ;;
-            esac
-        done
+        " 2>&1)
+        
+        case "$create_output" in
+            *USER_CREATED*)    log_success "  MongoDB user 'twoine' created" ;;
+            *PASSWORD_UPDATED*) log_info "  MongoDB user 'twoine' already existed — password updated" ;;
+            *)                 log_warning "  MongoDB user creation output: $create_output" ;;
+        esac
 
         # ── Step 3: Restart MongoDB to apply authorization ──
         log_info "  → Restarting MongoDB with authorization..."
@@ -1026,9 +1025,35 @@ setup_mongodb_user() {
             --eval "db.runCommand({ping:1})" >/dev/null 2>&1; then
             log_success "  MongoDB authentication verified successfully"
         else
-            log_error "  MongoDB authentication verification FAILED"
-            log_error "  URI: mongodb://twoine:***@localhost:27017/twoine?authSource=twoine"
-            log_error "  Check: mongosh 'mongodb://twoine:PASSWORD@localhost:27017/twoine?authSource=twoine'"
+            log_warning "  First auth check failed — retrying user creation with auth disabled..."
+            # Temporarily disable auth, recreate user, re-enable
+            sed -i 's/^  authorization: enabled/  authorization: disabled/' "$mongod_conf"
+            systemctl restart mongod
+            sleep 2
+            
+            mongosh --quiet twoine --eval "
+                try { db.dropUser('twoine'); } catch(e) {}
+                db.createUser({
+                    user: 'twoine',
+                    pwd: '${mongo_password}',
+                    roles: [{ role: 'readWrite', db: 'twoine' }]
+                });
+                print('USER_RECREATED');
+            " 2>&1 | tee /dev/stderr
+            
+            sed -i 's/^  authorization: disabled/  authorization: enabled/' "$mongod_conf"
+            systemctl restart mongod
+            sleep 3
+            
+            if mongosh --quiet \
+                "mongodb://twoine:${mongo_password}@localhost:27017/twoine?authSource=twoine" \
+                --eval "db.runCommand({ping:1})" >/dev/null 2>&1; then
+                log_success "  MongoDB authentication verified (after retry)"
+            else
+                log_error "  MongoDB authentication STILL FAILED after retry"
+                log_error "  URI: mongodb://twoine:***@localhost:27017/twoine?authSource=twoine"
+                log_error "  Manual fix: mongosh twoine --eval \"db.createUser({user:'twoine',pwd:'PASSWORD',roles:[{role:'readWrite',db:'twoine'}]})\""
+            fi
         fi
     fi
     
