@@ -45,21 +45,36 @@ let lastMetrics = {};
  */
 function log(level, message) {
     const timestamp = new Date().toISOString();
-    console.log(`${timestamp} ${LOG_PREFIX} [${level.toUpperCase()}] ${message}`);
+    const line = `${timestamp} ${LOG_PREFIX} [${level.toUpperCase()}] ${message}`;
+    if (level === 'error' || level === 'warn') {
+        console.error(line);
+    } else {
+        console.log(line);
+    }
 }
 
 /**
  * Connexion à MongoDB
  */
-async function connectDatabase() {
-    try {
-        await mongoose.connect(MONGODB_URI);
-        log('info', 'Connected to MongoDB');
-        return true;
-    } catch (error) {
-        log('error', `MongoDB connection failed: ${error.message}`);
-        return false;
+async function connectDatabase(retries = 5, delay = 3000) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            await mongoose.connect(MONGODB_URI, {
+                serverSelectionTimeoutMS: 5000,
+                connectTimeoutMS: 10000
+            });
+            log('info', 'Connected to MongoDB');
+            return true;
+        } catch (error) {
+            log('error', `MongoDB connection attempt ${attempt}/${retries} failed: ${error.message}`);
+            if (attempt < retries) {
+                log('info', `Retrying in ${delay / 1000}s...`);
+                await new Promise(r => setTimeout(r, delay));
+                delay = Math.min(delay * 2, 30000);
+            }
+        }
     }
+    return false;
 }
 
 /**
@@ -376,6 +391,8 @@ async function main() {
     log('info', 'Twoine Monitor starting...');
     log('info', `Node.js ${process.version}`);
     log('info', `Environment: ${process.env.NODE_ENV || 'development'}`);
+    log('info', `WorkingDirectory: ${process.cwd()}`);
+    log('info', `MongoDB URI: ${MONGODB_URI.replace(/\/\/.*@/, '//<credentials>@')}`);
     
     // Gestionnaires de signaux
     process.on('SIGTERM', () => shutdown('SIGTERM'));
@@ -384,10 +401,10 @@ async function main() {
         log('info', 'Received SIGHUP, reloading configuration...');
     });
     
-    // Connexion à la base de données
-    const connected = await connectDatabase();
+    // Connexion à la base de données avec retry
+    const connected = await connectDatabase(5, 3000);
     if (!connected) {
-        log('error', 'Failed to connect to database, exiting...');
+        log('error', 'Failed to connect to database after 5 attempts, exiting...');
         process.exit(1);
     }
     

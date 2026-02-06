@@ -958,18 +958,81 @@ setup_mongodb_user() {
     mongo_password=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 32)
     
     if [ "$DRY_RUN" = false ]; then
+        # ── Step 1: Enable MongoDB authorization if not already enabled ──
+        local mongod_conf="/etc/mongod.conf"
+        if [ -f "$mongod_conf" ]; then
+            if ! grep -q "^security:" "$mongod_conf"; then
+                log_info "  → Enabling MongoDB authorization..."
+                echo "" >> "$mongod_conf"
+                echo "security:" >> "$mongod_conf"
+                echo "  authorization: enabled" >> "$mongod_conf"
+                log_success "  MongoDB authorization enabled in $mongod_conf"
+            elif ! grep -q "authorization: enabled" "$mongod_conf"; then
+                log_info "  → Enabling MongoDB authorization..."
+                sed -i '/^security:/a\  authorization: enabled' "$mongod_conf"
+                log_success "  MongoDB authorization enabled in $mongod_conf"
+            else
+                log_info "  → MongoDB authorization already enabled"
+            fi
+        else
+            log_warning "  MongoDB config not found at $mongod_conf"
+        fi
+
+        # ── Step 2: Create or update the MongoDB user (BEFORE restarting with auth) ──
+        # Try to create the user first; if it already exists, update the password
+        local user_created=false
         mongosh --quiet --eval "
             use twoine;
-            db.createUser({
-                user: 'twoine',
-                pwd: '$mongo_password',
-                roles: [
-                    { role: 'readWrite', db: 'twoine' }
-                ]
-            });
-        " 2>/dev/null || log_warning "MongoDB user may already exist"
+            try {
+                db.createUser({
+                    user: 'twoine',
+                    pwd: '$mongo_password',
+                    roles: [{ role: 'readWrite', db: 'twoine' }]
+                });
+                print('USER_CREATED');
+            } catch (e) {
+                if (e.codeName === 'DuplicateKey' || e.code === 51003 || e.message.includes('already exists')) {
+                    db.changeUserPassword('twoine', '$mongo_password');
+                    print('PASSWORD_UPDATED');
+                } else {
+                    print('ERROR: ' + e.message);
+                    throw e;
+                }
+            }
+        " 2>&1 | while read -r line; do
+            case "$line" in
+                USER_CREATED)    log_success "  MongoDB user 'twoine' created" ;;
+                PASSWORD_UPDATED) log_info "  MongoDB user 'twoine' password updated" ;;
+                ERROR*)          log_warning "  $line" ;;
+            esac
+        done
+
+        # ── Step 3: Restart MongoDB to apply authorization ──
+        log_info "  → Restarting MongoDB with authorization..."
+        systemctl restart mongod
+        sleep 3
+        
+        if ! systemctl is-active --quiet mongod; then
+            log_error "  MongoDB failed to restart! Checking config..."
+            journalctl -u mongod -n 5 --no-pager
+            die "MongoDB failed to restart after enabling authorization"
+        fi
+        log_success "  MongoDB restarted with authorization"
+
+        # ── Step 4: Verify authentication works ──
+        log_info "  → Verifying MongoDB authentication..."
+        if mongosh --quiet \
+            "mongodb://twoine:${mongo_password}@localhost:27017/twoine?authSource=twoine" \
+            --eval "db.runCommand({ping:1})" >/dev/null 2>&1; then
+            log_success "  MongoDB authentication verified successfully"
+        else
+            log_error "  MongoDB authentication verification FAILED"
+            log_error "  URI: mongodb://twoine:***@localhost:27017/twoine?authSource=twoine"
+            log_error "  Check: mongosh 'mongodb://twoine:PASSWORD@localhost:27017/twoine?authSource=twoine'"
+        fi
     fi
     
+    # Save password (always in sync with what was set in MongoDB)
     echo "$mongo_password" > "$DEFAULT_INSTALL_DIR/config/.mongo_password"
     chmod 600 "$DEFAULT_INSTALL_DIR/config/.mongo_password"
     chown twoine:twoine "$DEFAULT_INSTALL_DIR/config/.mongo_password"
@@ -1237,6 +1300,9 @@ Description=Twoine API Backend
 Documentation=https://github.com/Antoine601/Twoine
 After=network.target mongod.service
 Requires=mongod.service
+PartOf=twoine.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -1249,8 +1315,9 @@ RestartSec=10
 TimeoutStartSec=30
 TimeoutStopSec=30
 
-StandardOutput=append:${DEFAULT_LOG_DIR}/api/twoine-api.log
-StandardError=append:${DEFAULT_LOG_DIR}/api/twoine-api-error.log
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=twoine-api
 
 Environment=NODE_ENV=production
 Environment=PORT=${API_PORT}
@@ -1294,6 +1361,9 @@ Description=Twoine Background Worker
 Documentation=https://github.com/Antoine601/Twoine
 After=network.target mongod.service twoine-api.service
 Wants=twoine-api.service
+PartOf=twoine.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -1306,8 +1376,9 @@ RestartSec=15
 TimeoutStartSec=30
 TimeoutStopSec=60
 
-StandardOutput=append:${DEFAULT_LOG_DIR}/worker/worker.log
-StandardError=append:${DEFAULT_LOG_DIR}/worker/worker-error.log
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=twoine-worker
 
 Environment=NODE_ENV=production
 EnvironmentFile=-${DEFAULT_INSTALL_DIR}/app/.env
@@ -1334,6 +1405,9 @@ Description=Twoine Service Supervisor & Monitor
 Documentation=https://github.com/Antoine601/Twoine
 After=network.target mongod.service twoine-api.service
 Wants=twoine-api.service
+PartOf=twoine.target
+StartLimitIntervalSec=120
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -1346,8 +1420,9 @@ RestartSec=15
 TimeoutStartSec=30
 TimeoutStopSec=30
 
-StandardOutput=append:${DEFAULT_LOG_DIR}/supervisor/supervisor.log
-StandardError=append:${DEFAULT_LOG_DIR}/supervisor/supervisor-error.log
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=twoine-supervisor
 
 Environment=NODE_ENV=production
 EnvironmentFile=-${DEFAULT_INSTALL_DIR}/app/.env
