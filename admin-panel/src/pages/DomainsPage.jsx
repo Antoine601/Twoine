@@ -47,7 +47,7 @@ export default function DomainsPage() {
       setLoading(true)
       const endpoint = filters.siteId 
         ? `/sites/${filters.siteId}/domains`
-        : '/domains'
+        : '/admin/domains'
       const response = await api.get(endpoint)
       const data = response.data.data
       setDomains(Array.isArray(data) ? data : data.domains || [])

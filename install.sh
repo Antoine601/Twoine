@@ -874,13 +874,27 @@ set_permissions() {
     execute chown -R twoine:twoine "$DEFAULT_LOG_DIR"
     execute chown -R twoine:twoine "$DEFAULT_DATA_DIR"
     
-    execute chmod 750 "$DEFAULT_INSTALL_DIR"
+    # /opt/twoine and /opt/twoine/app must be 755 (world-traversable)
+    # so Nginx (www-data) can reach static files in panel dist/ dirs
+    execute chmod 755 "$DEFAULT_INSTALL_DIR"
+    execute chmod 755 "$DEFAULT_INSTALL_DIR/app" 2>/dev/null || true
+    
     execute chmod 750 "$SITES_DIR"
     execute chmod 750 "$DEFAULT_LOG_DIR"
     execute chmod 750 "$DEFAULT_DATA_DIR"
+    
+    # Sensitive dirs: owner-only
     execute chmod 700 "$DEFAULT_INSTALL_DIR/config"
     execute chmod 700 "$DEFAULT_INSTALL_DIR/ssl"
     execute chmod 700 "$DEFAULT_DATA_DIR/sessions"
+    
+    # Panel dist dirs must be readable by Nginx (www-data)
+    for panel_dir in "$DEFAULT_INSTALL_DIR/app/admin-panel" "$DEFAULT_INSTALL_DIR/app/user-panel"; do
+        if [ -d "$panel_dir/dist" ]; then
+            find "$panel_dir" -type d -exec chmod 755 {} \;
+            find "$panel_dir/dist" -type f -exec chmod 644 {} \;
+        fi
+    done
     
     log_success "Permissions configurées"
 }
@@ -1267,7 +1281,7 @@ build_frontend_panels() {
             
             # Create .env for admin panel
             cat > .env << ADMINENV
-VITE_API_URL=https://${DOMAIN:-localhost}/api
+VITE_API_URL=/api
 VITE_APP_NAME=Twoine Admin
 VITE_APP_VERSION=$TWOINE_VERSION
 PORT=$ADMIN_PANEL_PORT
@@ -1284,7 +1298,7 @@ ADMINENV
             
             # Create .env for user panel
             cat > .env << USERENV
-VITE_API_URL=https://${DOMAIN:-localhost}/api
+VITE_API_URL=/api
 VITE_APP_NAME=Twoine
 VITE_APP_VERSION=$TWOINE_VERSION
 PORT=$USER_PANEL_PORT
@@ -1621,7 +1635,7 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:;" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' ws: wss:;" always;
 
     # Logging
     access_log ${DEFAULT_LOG_DIR}/nginx/access.log;

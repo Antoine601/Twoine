@@ -47,7 +47,7 @@ export default function ServicesPage() {
       setLoading(true)
       const endpoint = filters.siteId 
         ? `/sites/${filters.siteId}/services`
-        : '/services'
+        : '/admin/services'
       const response = await api.get(endpoint)
       const data = response.data.data
       setServices(Array.isArray(data) ? data : data.services || [])

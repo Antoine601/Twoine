@@ -48,7 +48,7 @@ export default function DatabasesPage() {
       setLoading(true)
       const endpoint = filters.siteId 
         ? `/sites/${filters.siteId}/databases`
-        : '/databases'
+        : '/admin/databases'
       const response = await api.get(endpoint)
       const data = response.data.data
       setDatabases(Array.isArray(data) ? data : data.databases || [])
