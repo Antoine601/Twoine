@@ -1358,11 +1358,14 @@ Environment=NODE_ENV=production
 Environment=PORT=${API_PORT}
 EnvironmentFile=-${DEFAULT_INSTALL_DIR}/app/.env
 
-NoNewPrivileges=true
-ProtectSystem=strict
+NoNewPrivileges=false
+ProtectSystem=full
 ProtectHome=read-only
-ReadWritePaths=${SITES_DIR} ${DEFAULT_LOG_DIR} ${DEFAULT_INSTALL_DIR}/tmp ${DEFAULT_DATA_DIR}
+ReadWritePaths=${SITES_DIR} ${DEFAULT_LOG_DIR} ${DEFAULT_INSTALL_DIR}/tmp ${DEFAULT_DATA_DIR} /etc /run/sudo
 PrivateTmp=true
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_KILL
+AmbientCapabilities=CAP_SETUID CAP_SETGID CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_KILL
+RestrictSUIDSGID=false
 
 [Install]
 WantedBy=multi-user.target
@@ -1960,8 +1963,23 @@ Cmnd_Alias TWOINE_SERVICE_DIRS = \
     /usr/bin/chmod 600 /var/www/twoine/*/services/*/.env, \
     /usr/bin/rm -rf /var/www/twoine/*/services/*
 
+# Commandes pour la gestion des sites (création/suppression utilisateurs Linux, répertoires, permissions)
+Cmnd_Alias TWOINE_SITE_MGMT = \
+    /usr/sbin/useradd --system --create-home --home-dir /var/www/twoine/* --shell /usr/sbin/nologin --comment Twoine?Site\:?* site_*, \
+    /usr/sbin/userdel site_*, \
+    /usr/bin/id site_*, \
+    /usr/bin/mkdir -p /var/www/twoine/*, \
+    /usr/bin/chown -R site_*\:site_* /var/www/twoine/*, \
+    /usr/bin/chmod 750 /var/www/twoine/*, \
+    /usr/bin/chmod 700 /var/www/twoine/*, \
+    /usr/bin/setfacl -R -m u\:twoine\:rx /var/www/twoine/*, \
+    /usr/bin/setfacl -R -d -m u\:twoine\:rx /var/www/twoine/*, \
+    /usr/bin/pkill -u site_*, \
+    /usr/bin/rm -rf /var/www/twoine/*, \
+    /usr/bin/tee /var/www/twoine/*
+
 # L'utilisateur twoine peut exécuter ces commandes sans mot de passe
-twoine ALL=(ALL) NOPASSWD: TWOINE_SYSTEMCTL, TWOINE_UNIT_FILES, TWOINE_SERVICE_DIRS
+twoine ALL=(ALL) NOPASSWD: TWOINE_SYSTEMCTL, TWOINE_UNIT_FILES, TWOINE_SERVICE_DIRS, TWOINE_SITE_MGMT
 
 # Exécution de commandes en tant qu'utilisateur de site
 twoine ALL=(site_*) NOPASSWD: /usr/bin/bash -c *

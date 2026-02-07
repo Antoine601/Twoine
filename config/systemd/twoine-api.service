@@ -36,15 +36,17 @@ SyslogIdentifier=twoine-api
 # SÉCURITÉ - Isolation du service
 # ============================================================================
 
-# Empêcher l'acquisition de nouveaux privilèges
-NoNewPrivileges=true
+# Permettre l'acquisition de privilèges (nécessaire pour sudo useradd, chown, etc.)
+NoNewPrivileges=false
 
 # Système de fichiers en lecture seule sauf exceptions
-ProtectSystem=strict
+# Note: 'full' au lieu de 'strict' pour permettre les écritures dans /etc (useradd) et /usr
+ProtectSystem=full
 ProtectHome=read-only
 
 # Répertoires accessibles en écriture
-ReadWritePaths=/var/www/twoine /var/log/twoine /opt/twoine/tmp
+# Inclut /etc pour la gestion des utilisateurs Linux (useradd/userdel)
+ReadWritePaths=/var/www/twoine /var/log/twoine /opt/twoine/tmp /etc /run/sudo
 
 # Répertoire temporaire privé
 PrivateTmp=true
@@ -57,14 +59,14 @@ ProtectControlGroups=true
 ProtectClock=true
 ProtectHostname=true
 
-# Restreindre les capabilities
-CapabilityBoundingSet=
-AmbientCapabilities=
+# Capabilities nécessaires pour la gestion des sites (création utilisateurs, permissions fichiers)
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_KILL
+AmbientCapabilities=CAP_SETUID CAP_SETGID CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_KILL
 
 # Restreindre les namespaces
 RestrictNamespaces=true
 RestrictRealtime=true
-RestrictSUIDSGID=true
+RestrictSUIDSGID=false
 
 # Filtrage seccomp retiré (provoquait des SIGSYS sur certaines versions de Node.js/systemd)
 SystemCallArchitectures=native

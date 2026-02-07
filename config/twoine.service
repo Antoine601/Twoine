@@ -20,10 +20,13 @@ Environment=NODE_ENV=production
 Environment=PORT=3000
 EnvironmentFile=-/opt/twoine/app/.env
 
-NoNewPrivileges=true
-ProtectSystem=strict
+NoNewPrivileges=false
+ProtectSystem=full
 ProtectHome=read-only
-ReadWritePaths=/var/www/twoine /var/log/twoine /opt/twoine/tmp
+ReadWritePaths=/var/www/twoine /var/log/twoine /opt/twoine/tmp /etc /run/sudo
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_KILL
+AmbientCapabilities=CAP_SETUID CAP_SETGID CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_KILL
+RestrictSUIDSGID=false
 
 [Install]
 WantedBy=multi-user.target
