@@ -44,8 +44,8 @@ API_PORT="3000"
 ADMIN_PANEL_PORT="4321"
 USER_PANEL_PORT="5432"
 
-# Platform Domain (twoine. prefix mandatory)
-PLATFORM_DOMAIN="twoine.example.com"
+# Platform Domain (twoine. prefix mandatory, set via interactive prompt or --domain=)
+PLATFORM_DOMAIN=""
 
 # Default Admin
 DEFAULT_ADMIN_USERNAME="twoineadmin"
@@ -83,7 +83,7 @@ FORCE_MODE=false
 ADMIN_USERNAME="$DEFAULT_ADMIN_USERNAME"
 ADMIN_PASSWORD=""
 ADMIN_EMAIL=""
-DOMAIN="$PLATFORM_DOMAIN"
+DOMAIN=""
 SITES_DIR=""
 SERVER_IP=""
 CONFIRM_INSTALL=false
@@ -228,7 +228,13 @@ parse_arguments() {
                 shift
                 ;;
             --domain=*)
-                DOMAIN="${1#*=}"
+                local cli_domain="${1#*=}"
+                # Enforce twoine. prefix
+                if [[ "$cli_domain" == twoine.* ]]; then
+                    DOMAIN="$cli_domain"
+                else
+                    DOMAIN="twoine.${cli_domain}"
+                fi
                 shift
                 ;;
             --sites-dir=*)
@@ -513,11 +519,16 @@ configure_domain_with_dns_check() {
     echo ""
     
     while true; do
-        local base_domain
         if [ -n "$DOMAIN" ]; then
-            log_info "Domaine pré-configuré: $DOMAIN"
+            # Domaine fourni via --domain= en ligne de commande
+            log_info "Domaine pré-configuré via CLI : $DOMAIN"
         else
-            read -p "Entrez votre nom de domaine de base (ex: exemple.com) : " base_domain
+            echo ""
+            echo "Le sous-domaine 'twoine' sera ajouté automatiquement."
+            echo "  Exemple : si vous entrez 'exemple.com' → Twoine sera accessible via 'twoine.exemple.com'"
+            echo ""
+            local base_domain
+            read -p "Entrez votre nom de domaine (ex: exemple.com, monsite.fr) : " base_domain
             
             if [ -z "$base_domain" ]; then
                 log_warning "Domaine vide. Passage en mode IP."
@@ -525,20 +536,18 @@ configure_domain_with_dns_check() {
                 return
             fi
             
+            # Retirer un éventuel twoine. déjà saisi par l'utilisateur
+            base_domain="${base_domain#twoine.}"
+            
             # Construction automatique avec le sous-domaine obligatoire "twoine"
             DOMAIN="twoine.${base_domain}"
-            log_info "Domaine Twoine configuré : $DOMAIN"
-        fi
-        
-        if [ -z "$DOMAIN" ]; then
-            log_warning "Domaine vide. Passage en mode IP."
-            configure_ip_access
-            return
+            echo ""
+            log_info "Twoine sera accessible via : ${GREEN}${DOMAIN}${NC}"
         fi
         
         if ! validate_domain_format "$DOMAIN"; then
-            log_error "Format de domaine invalide."
-            echo "Exemples valides de domaines de base : exemple.com, monsite.fr"
+            log_error "Format de domaine invalide : $DOMAIN"
+            echo "Exemples valides : exemple.com, monsite.fr"
             DOMAIN=""
             continue
         fi
