@@ -38,8 +38,8 @@ router.get('/admin/databases', authorize('admin'), async (req, res) => {
 
         res.json({
             success: true,
+            data: databases,
             count: databases.length,
-            databases,
         });
     } catch (error) {
         res.status(500).json({

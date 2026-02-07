@@ -1697,7 +1697,7 @@ server {
     # Admin Panel (static files from build)
     # =========================================================================
     
-    location /admin/ {
+    location ^~ /admin/ {
         alias ${DEFAULT_INSTALL_DIR}/app/admin-panel/dist/;
         try_files \$uri \$uri/ /admin/index.html;
         expires 7d;
@@ -1717,8 +1717,8 @@ server {
         try_files \$uri \$uri/ /index.html;
     }
 
-    # Static assets caching
-    location ~* \.(jpg|jpeg|png|gif|ico|css|js|woff|woff2|ttf|svg|eot)$ {
+    # Static assets caching (user panel only — admin panel assets are handled by /admin/ alias)
+    location ~* ^(?!/admin/).*\.(jpg|jpeg|png|gif|ico|css|js|woff|woff2|ttf|svg|eot)$ {
         root ${DEFAULT_INSTALL_DIR}/app/user-panel/dist;
         expires 7d;
         add_header Cache-Control "public, immutable";

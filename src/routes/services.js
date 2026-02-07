@@ -67,45 +67,6 @@ const checkSiteAccess = async (req, res, next) => {
 };
 
 // ============================================================================
-// ADMIN ROUTES - All services across all sites
-// ============================================================================
-
-/**
- * GET /api/admin/services
- * Liste tous les services (admin seulement)
- */
-router.get('/admin/services',
-    authenticate,
-    authorize('admin'),
-    async (req, res) => {
-        try {
-            const { type, status, siteId } = req.query;
-
-            const query = {};
-            if (type) query.type = type;
-            if (status) query.status = status;
-            if (siteId) query.site = siteId;
-
-            const services = await Service.find(query)
-                .populate('site', 'name displayName status')
-                .sort({ createdAt: -1 });
-
-            res.json({
-                success: true,
-                data: services,
-                count: services.length,
-            });
-        } catch (error) {
-            console.error('[SERVICES] Admin list error:', error);
-            res.status(500).json({
-                success: false,
-                error: 'Failed to list services',
-            });
-        }
-    }
-);
-
-// ============================================================================
 // SERVICES CRUD
 // ============================================================================
 
@@ -926,8 +887,8 @@ router.get('/admin/services',
     authenticate,
     authorize('admin'),
     [
-        query('status').optional().isIn(['running', 'stopped', 'failed', 'unknown']),
-        query('type').optional().isIn(['node', 'python', 'php', 'ruby', 'go', 'rust', 'java', 'dotnet', 'static', 'custom']),
+        query('status').optional({ values: 'falsy' }).isIn(['running', 'stopped', 'failed', 'unknown']),
+        query('type').optional({ values: 'falsy' }).isIn(['node', 'python', 'php', 'ruby', 'go', 'rust', 'java', 'dotnet', 'static', 'custom']),
     ],
     validate,
     async (req, res) => {

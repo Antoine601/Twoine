@@ -315,7 +315,7 @@ export default function SitesPage() {
               className="input"
               placeholder="mon-site"
               required
-              pattern="[a-z0-9-]+"
+              pattern="[-a-z0-9]+"
             />
             <p className="text-xs text-admin-500 mt-1">Lettres minuscules, chiffres et tirets uniquement</p>
           </div>

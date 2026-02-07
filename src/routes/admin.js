@@ -31,10 +31,19 @@ router.get('/users', async (req, res) => {
             role, 
             status, 
             search, 
-            page = 1, 
-            limit = 20,
-            sort = '-createdAt'
+            page: rawPage, 
+            limit: rawLimit,
+            sort: rawSort,
         } = req.query;
+
+        // Sanitize pagination
+        const pageNum = Math.max(1, parseInt(rawPage, 10) || 1);
+        const limitNum = Math.min(100, Math.max(1, parseInt(rawLimit, 10) || 20));
+        const skip = (pageNum - 1) * limitNum;
+
+        // Whitelist allowed sort fields
+        const allowedSorts = ['createdAt', '-createdAt', 'username', '-username', 'email', '-email', 'role', '-role', 'status', '-status', 'lastLoginAt', '-lastLoginAt'];
+        const sortField = allowedSorts.includes(rawSort) ? rawSort : '-createdAt';
 
         const query = {};
 
@@ -46,25 +55,25 @@ router.get('/users', async (req, res) => {
             query.status = status;
         }
         if (search) {
+            // Escape regex special characters to prevent MongoDB regex errors
+            const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             query.$or = [
-                { username: { $regex: search, $options: 'i' } },
-                { email: { $regex: search, $options: 'i' } },
-                { 'profile.firstName': { $regex: search, $options: 'i' } },
-                { 'profile.lastName': { $regex: search, $options: 'i' } },
+                { username: { $regex: escapedSearch, $options: 'i' } },
+                { email: { $regex: escapedSearch, $options: 'i' } },
+                { 'profile.firstName': { $regex: escapedSearch, $options: 'i' } },
+                { 'profile.lastName': { $regex: escapedSearch, $options: 'i' } },
             ];
         }
 
-        const skip = (parseInt(page) - 1) * parseInt(limit);
-
         const [users, total] = await Promise.all([
             User.find(query)
-                .select('-passwordHistory -activeSessions')
+                .select('-passwordHistory')
                 .populate('sites.site', 'name displayName status')
                 .populate('createdBy', 'username')
                 .populate('blockedBy', 'username')
-                .sort(sort)
+                .sort(sortField)
                 .skip(skip)
-                .limit(parseInt(limit)),
+                .limit(limitNum),
             User.countDocuments(query),
         ]);
 
@@ -73,18 +82,19 @@ router.get('/users', async (req, res) => {
             data: {
                 users,
                 pagination: {
-                    page: parseInt(page),
-                    limit: parseInt(limit),
+                    page: pageNum,
+                    limit: limitNum,
                     total,
-                    pages: Math.ceil(total / parseInt(limit)),
+                    pages: Math.ceil(total / limitNum),
                 },
             },
         });
     } catch (error) {
-        console.error('[ADMIN] List users error:', error);
+        console.error('[ADMIN] List users error:', error.message, error.stack);
         res.status(500).json({
             success: false,
             error: 'Failed to list users',
+            details: error.message,
         });
     }
 });
@@ -105,7 +115,7 @@ router.get('/users/:id', async (req, res) => {
         }
 
         const user = await User.findById(id)
-            .select('-passwordHistory -activeSessions')
+            .select('-passwordHistory')
             .populate('sites.site', 'name displayName status domains')
             .populate('createdBy', 'username email')
             .populate('blockedBy', 'username email');

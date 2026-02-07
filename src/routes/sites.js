@@ -38,14 +38,16 @@ const validate = (req, res, next) => {
 router.get('/',
     authenticate,
     [
-        query('status').optional().isIn(['pending', 'creating', 'active', 'stopped', 'error', 'deleting', 'deleted']),
-        query('page').optional().isInt({ min: 1 }).toInt(),
-        query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
+        query('status').optional({ values: 'falsy' }).isIn(['pending', 'creating', 'active', 'stopped', 'error', 'deleting', 'deleted']),
+        query('page').optional({ values: 'falsy' }).isInt({ min: 1 }).toInt(),
+        query('limit').optional({ values: 'falsy' }).isInt({ min: 1, max: 100 }).toInt(),
     ],
     validate,
     async (req, res) => {
         try {
-            const { status, page = 1, limit = 20 } = req.query;
+            const { status, search, page = 1, limit = 20 } = req.query;
+            const pageNum = Math.max(1, parseInt(page, 10) || 1);
+            const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
             const filters = {};
 
             // Si pas admin, filtrer par propriétaire
@@ -57,10 +59,18 @@ router.get('/',
                 filters.status = status;
             }
 
+            if (search) {
+                const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                filters.$or = [
+                    { name: { $regex: escapedSearch, $options: 'i' } },
+                    { displayName: { $regex: escapedSearch, $options: 'i' } },
+                ];
+            }
+
             const sites = await Site.find(filters)
                 .populate('owner', 'email username')
-                .skip((page - 1) * limit)
-                .limit(limit)
+                .skip((pageNum - 1) * limitNum)
+                .limit(limitNum)
                 .sort({ createdAt: -1 });
 
             const total = await Site.countDocuments(filters);
@@ -69,13 +79,14 @@ router.get('/',
                 success: true,
                 data: sites,
                 pagination: {
-                    page,
-                    limit,
+                    page: pageNum,
+                    limit: limitNum,
                     total,
-                    pages: Math.ceil(total / limit),
+                    pages: Math.ceil(total / limitNum),
                 },
             });
         } catch (error) {
+            console.error('[SITES] List error:', error.message);
             res.status(500).json({
                 success: false,
                 error: error.message,

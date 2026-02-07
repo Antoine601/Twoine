@@ -216,8 +216,8 @@ SiteSchema.virtual('services', {
     foreignField: 'site',
 });
 
-// Pre-save: auto-generate paths and linux user
-SiteSchema.pre('save', function(next) {
+// Pre-validate: auto-generate paths and linux user (must run before validation so required fields are set)
+SiteSchema.pre('validate', function(next) {
     if (this.isNew) {
         const basePath = process.env.SITES_DIR || '/var/www/sites';
         
