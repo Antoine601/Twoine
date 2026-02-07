@@ -48,7 +48,7 @@ api.interceptors.response.use(
       } catch (refreshError) {
         localStorage.removeItem('adminAccessToken')
         localStorage.removeItem('adminRefreshToken')
-        window.location.href = '/login'
+        window.location.href = '/admin/login'
         return Promise.reject(refreshError)
       }
     }

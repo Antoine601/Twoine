@@ -1221,23 +1221,10 @@ ENVFILE
 }
 
 hash_admin_password() {
-    log_info "Hashing admin password..."
-    
-    local hashed_password
-    
-    if [ "$DRY_RUN" = false ]; then
-        hashed_password=$(node -e "
-            const bcrypt = require('bcryptjs');
-            const hash = bcrypt.hashSync('${ADMIN_PASSWORD}', 12);
-            console.log(hash);
-        " 2>/dev/null || echo "PLACEHOLDER_HASH")
-        
-        echo "$hashed_password" > "$DEFAULT_INSTALL_DIR/config/.admin_hash"
-        chmod 600 "$DEFAULT_INSTALL_DIR/config/.admin_hash"
-        chown twoine:twoine "$DEFAULT_INSTALL_DIR/config/.admin_hash"
-    fi
-    
-    log_success "Admin password secured"
+    # No-op: password hashing is now handled by Mongoose pre-save hook
+    # in create_admin_user() which uses Node.js instead of raw mongosh.
+    # Kept for backward compatibility with the install flow.
+    log_info "Admin password will be hashed via Mongoose at user creation"
 }
 
 install_npm_dependencies() {
@@ -1802,38 +1789,101 @@ run_configure_firewall() {
 create_admin_user() {
     log_info "Création du compte administrateur initial..."
     
-    local admin_hash
-    if [ -f "$DEFAULT_INSTALL_DIR/config/.admin_hash" ]; then
-        admin_hash=$(cat "$DEFAULT_INSTALL_DIR/config/.admin_hash")
-    else
-        admin_hash="PLACEHOLDER"
-    fi
-    
     if [ "$DRY_RUN" = false ]; then
-        mongosh --quiet twoine --eval "
-            db.users.insertOne({
-                username: '${ADMIN_USERNAME}',
-                email: '${ADMIN_EMAIL}',
-                password: '${admin_hash}',
-                role: 'admin',
-                active: true,
-                permissions: {
-                    sites: { create: true, read: true, update: true, delete: true },
-                    users: { create: true, read: true, update: true, delete: true },
-                    services: { create: true, read: true, update: true, delete: true },
-                    domains: { create: true, read: true, update: true, delete: true },
-                    databases: { create: true, read: true, update: true, delete: true },
-                    system: { read: true, update: true }
-                },
-                createdAt: new Date(),
-                updatedAt: new Date()
-            });
-        " 2>/dev/null || log_warning "Le compte admin existe peut-être déjà"
+        # Use Node.js + Mongoose to create admin user.
+        # This ensures:
+        #   - pre-save hook hashes the password correctly with bcrypt
+        #   - all schema fields are properly initialized (status, failedLoginAttempts, etc.)
+        #   - Mongoose indexes and timestamps are created
+        #   - no bash $-interpolation of bcrypt hash characters
+        # Password is passed via environment variable to avoid shell escaping issues.
+        local create_result
+        create_result=$(cd "$DEFAULT_INSTALL_DIR/app" && \
+            ADMIN_USERNAME="$ADMIN_USERNAME" \
+            ADMIN_EMAIL="$ADMIN_EMAIL" \
+            ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+            node -e '
+const mongoose = require("mongoose");
+require("dotenv").config();
+
+async function createAdmin() {
+    await mongoose.connect(process.env.MONGODB_URI || "mongodb://localhost:27017/twoine");
+    const User = require("./src/models/User");
+
+    // Check if admin already exists
+    const existing = await User.findOne({
+        $or: [
+            { username: process.env.ADMIN_USERNAME.toLowerCase() },
+            { email: process.env.ADMIN_EMAIL.toLowerCase() },
+            { role: "admin" }
+        ]
+    });
+
+    if (existing) {
+        // Update existing admin password and ensure account is active
+        existing.password = process.env.ADMIN_PASSWORD;
+        existing.status = "active";
+        existing.failedLoginAttempts = 0;
+        existing.lockUntil = undefined;
+        await existing.save(); // pre-save hook hashes the password
+        console.log("UPDATED:" + existing.username);
+    } else {
+        // Create new admin via Mongoose (pre-save hook hashes password)
+        const admin = await User.create({
+            username: process.env.ADMIN_USERNAME,
+            email: process.env.ADMIN_EMAIL,
+            password: process.env.ADMIN_PASSWORD,
+            role: "admin",
+            status: "active",
+            mustChangePassword: false,
+        });
+        console.log("CREATED:" + admin.username);
+    }
+
+    // Verify login works by comparing password
+    const verify = await User.findOne({ role: "admin" }).select("+password");
+    const bcrypt = require("bcryptjs");
+    const match = await bcrypt.compare(process.env.ADMIN_PASSWORD, verify.password);
+    if (!match) {
+        console.error("VERIFY_FAILED: password comparison failed after save");
+        process.exit(2);
+    }
+    console.log("VERIFY_OK");
+
+    await mongoose.disconnect();
+}
+
+createAdmin().then(() => process.exit(0)).catch(err => {
+    console.error("ERROR:" + err.message);
+    process.exit(1);
+});
+' 2>&1)
+        
+        local exit_code=$?
+        
+        if [ $exit_code -ne 0 ]; then
+            log_error "Échec de la création du compte admin"
+            log_error "Détails: $create_result"
+            return 1
+        fi
+        
+        if echo "$create_result" | grep -q "VERIFY_OK"; then
+            if echo "$create_result" | grep -q "CREATED:"; then
+                log_success "Compte administrateur '$ADMIN_USERNAME' créé et vérifié"
+            else
+                log_success "Compte administrateur '$ADMIN_USERNAME' mis à jour et vérifié"
+            fi
+        else
+            log_error "Le compte admin a été créé mais la vérification du mot de passe a échoué"
+            log_error "Détails: $create_result"
+            return 1
+        fi
+    else
+        log_info "[DRY-RUN] Compte admin '$ADMIN_USERNAME' serait créé"
     fi
     
+    # Clean up any old hash file
     rm -f "$DEFAULT_INSTALL_DIR/config/.admin_hash"
-    
-    log_success "Compte administrateur '$ADMIN_USERNAME' créé"
 }
 
 setup_service_management() {
@@ -2120,10 +2170,56 @@ print_summary() {
     echo ""
 }
 
+verify_admin_login() {
+    log_info "Vérification de la connexion admin via l'API..."
+    
+    if [ "$DRY_RUN" = true ]; then
+        log_info "[DRY-RUN] Vérification de la connexion admin ignorée"
+        return 0
+    fi
+    
+    # Wait for API to be ready
+    local api_url="http://localhost:${API_PORT}/api"
+    local retries=0
+    local max_retries=10
+    
+    while [ $retries -lt $max_retries ]; do
+        if curl -sf "${api_url}/health" >/dev/null 2>&1; then
+            break
+        fi
+        retries=$((retries + 1))
+        sleep 1
+    done
+    
+    if [ $retries -eq $max_retries ]; then
+        log_warning "API non disponible, impossible de vérifier la connexion admin"
+        return 1
+    fi
+    
+    # Test login with the admin credentials
+    local login_response
+    login_response=$(curl -sf -X POST "${api_url}/auth/login" \
+        -H "Content-Type: application/json" \
+        -d "{\"username\":\"${ADMIN_USERNAME}\",\"password\":\"${ADMIN_PASSWORD}\"}" 2>&1)
+    
+    local login_exit=$?
+    
+    if [ $login_exit -eq 0 ] && echo "$login_response" | grep -q '"success":true'; then
+        log_success "  ✓ Connexion admin vérifiée — login fonctionne"
+        return 0
+    else
+        log_error "  ✗ Connexion admin échouée après installation"
+        log_error "    Réponse API: $login_response"
+        log_error "    Vérifiez: journalctl -u twoine-api -n 30"
+        return 1
+    fi
+}
+
 run_finalization() {
     log_step "ÉTAPE 9: Finalisation"
     
     create_admin_user
+    verify_admin_login
     setup_service_management
     
     # Install production management tools
