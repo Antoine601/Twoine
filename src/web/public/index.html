@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Project Manager - Gestion de projets Node.js</title>
+    <title>Twoine - Gestion de projets</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
@@ -250,8 +250,8 @@
                                 <Icon name="server" size={18} className="text-white" />
                             </div>
                             <div>
-                                <h1 className="text-sm font-bold text-gray-900">Project Manager</h1>
-                                <p className="text-xs text-gray-500">Node.js + SFTP + PM2</p>
+                                <h1 className="text-sm font-bold text-gray-900">Twoine</h1>
+                                <p className="text-xs text-gray-500">Gestionnaire de projets</p>
                             </div>
                         </div>
                     </div>
@@ -321,7 +321,7 @@
                         <div className="w-7 h-7 bg-primary-600 rounded-lg flex items-center justify-center">
                             <Icon name="server" size={14} className="text-white" />
                         </div>
-                        <h1 className="text-sm font-bold text-gray-900">Project Manager</h1>
+                        <h1 className="text-sm font-bold text-gray-900">Twoine</h1>
                     </div>
                     <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
                         isAdmin ? 'bg-primary-50' : 'bg-emerald-50'
@@ -367,7 +367,7 @@
                                 <div className="w-20 h-20 bg-primary-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
                                     <Icon name="server" size={40} className="text-white" />
                                 </div>
-                                <h1 className="text-4xl font-bold text-gray-900 mb-3">Project Manager</h1>
+                                <h1 className="text-4xl font-bold text-gray-900 mb-3">Twoine</h1>
                                 <p className="text-gray-600 text-lg">Sélectionnez votre type de compte</p>
                             </div>
 
@@ -2398,7 +2398,7 @@
                                 onChange={e => setFolderName(e.target.value)}
                                 placeholder="nouveau-dossier"
                                 required
-                                className="w-full px-3 py-2 bg-dark-900 border border-dark-700 rounded-lg text-white focus:outline-none focus:border-blue-500 text-sm"
+                                className="w-full px-3 py-2 bg-dark-900 border border-dark-700 rounded-lg text-black focus:outline-none focus:border-blue-500 text-sm"
                             />
                         </div>
                         <div className="flex justify-end gap-3 pt-2">
@@ -2450,7 +2450,7 @@
                                 value={newName}
                                 onChange={e => setNewName(e.target.value)}
                                 required
-                                className="w-full px-3 py-2 bg-dark-900 border border-dark-700 rounded-lg text-white focus:outline-none focus:border-blue-500 text-sm"
+                                className="w-full px-3 py-2 bg-dark-900 border border-dark-700 rounded-lg text-black focus:outline-none focus:border-blue-500 text-sm"
                             />
                         </div>
                         <div className="flex justify-end gap-3 pt-2">

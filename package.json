@@ -1,5 +1,5 @@
 {
-  "name": "websftp",
+  "name": "Twoine",
   "version": "1.0.0",
   "description": "Outil de gestion de projets pour Ubuntu 22.04 avec SFTP sécurisé et interface Web",
   "main": "src/index.js",
@@ -43,10 +43,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Antoine601/WebSFTP.git"
+    "url": "https://github.com/Antoine601/Twoine.git"
   },
   "bugs": {
-    "url": "https://github.com/Antoine601/WebSFTP/issues"
+    "url": "https://github.com/Antoine601/Twoine/issues"
   },
-  "homepage": "https://github.com/Antoine601/WebSFTP#readme"
+  "homepage": "https://github.com/Antoine601/Twoine#readme"
 }
