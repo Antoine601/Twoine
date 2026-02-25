@@ -323,5 +323,4 @@ Pour signaler un bug ou demander une fonctionnalité, ouvrez une issue sur [GitH
 - [x] Interface mobile responsive améliorée
 - [ ] Backup automatique des bases de données
 #
-#   T w o i n e  
- 
+#
