@@ -1,8 +1,8 @@
-# WebSFTP - Twoine
+# Twoine
 
 Outil de gestion de projets pour Ubuntu 22.04 avec utilisateurs SFTP chroot sécurisés, gestion PM2 et interface Web moderne.
 
-![GitHub](https://img.shields.io/badge/GitHub-Antoine601%2FWebSFTP-blue)
+![GitHub](https://img.shields.io/badge/GitHub-Antoine601%2FTwoine-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen)
 
@@ -39,8 +39,8 @@ Outil de gestion de projets pour Ubuntu 22.04 avec utilisateurs SFTP chroot séc
 
 ```bash
 # Cloner le repository
-git clone https://github.com/Antoine601/WebSFTP.git
-cd WebSFTP
+git clone https://github.com/Antoine601/Twoine.git
+cd Twoine
 
 # Installer les dépendances
 npm install
@@ -297,11 +297,11 @@ Ce projet est sous licence MIT. Voir le fichier `LICENSE` pour plus de détails.
 **Antoine601**
 
 - GitHub: [@Antoine601](https://github.com/Antoine601)
-- Repository: [WebSFTP](https://github.com/Antoine601/WebSFTP)
+- Repository: [Twoine](https://github.com/Antoine601/Twoine)
 
 ## 🐛 Bugs & Issues
 
-Pour signaler un bug ou demander une fonctionnalité, ouvrez une issue sur [GitHub Issues](https://github.com/Antoine601/WebSFTP/issues).
+Pour signaler un bug ou demander une fonctionnalité, ouvrez une issue sur [GitHub Issues](https://github.com/Antoine601/Twoine/issues).
 
 ## ⚠️ Notes importantes
 
