@@ -1534,13 +1534,6 @@ router.post('/ai/chat', async (req, res) => {
             stream: stream || false
         };
 
-        // Enregistrer l'utilisation
-        apiKeys.recordUsage(apiKey, {
-            endpoint: '/api/ai/chat',
-            model: keyData.modelName,
-            messagesCount: messages.length
-        });
-
         // Proxy vers Ollama
         const ollamaOptions = {
             hostname: 'localhost',
@@ -1553,8 +1546,44 @@ router.post('/ai/chat', async (req, res) => {
         };
 
         const proxyReq = http.request(ollamaOptions, (proxyRes) => {
+            let responseData = '';
+            
             res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'application/json');
-            proxyRes.pipe(res);
+            
+            proxyRes.on('data', (chunk) => {
+                responseData += chunk.toString();
+                res.write(chunk);
+            });
+
+            proxyRes.on('end', () => {
+                res.end();
+                
+                // Enregistrer l'utilisation avec requête et réponse complètes
+                try {
+                    const parsedResponse = JSON.parse(responseData);
+                    apiKeys.recordUsage(apiKey, {
+                        endpoint: '/api/ai/chat',
+                        model: keyData.modelName,
+                        request: {
+                            messages: messages,
+                            stream: stream || false
+                        },
+                        response: parsedResponse,
+                        messagesCount: messages.length
+                    });
+                } catch (e) {
+                    // Si parsing échoue, enregistrer quand même
+                    apiKeys.recordUsage(apiKey, {
+                        endpoint: '/api/ai/chat',
+                        model: keyData.modelName,
+                        request: {
+                            messages: messages,
+                            stream: stream || false
+                        },
+                        messagesCount: messages.length
+                    });
+                }
+            });
         });
 
         proxyReq.on('error', (error) => {
@@ -1613,15 +1642,8 @@ router.post('/ai/generate', async (req, res) => {
             stream: stream || false
         };
 
-        // Enregistrer l'utilisation
-        apiKeys.recordUsage(apiKey, {
-            endpoint: '/api/ai/generate',
-            model: keyData.modelName,
-            promptLength: prompt.length
-        });
-
-        // Proxy vers Ollama
-        const ollamaOptions = {
+        // Proxy vers Ollama et enregistrer l'utilisation
+        const ollamaOptions2 = {
             hostname: 'localhost',
             port: 11434,
             path: '/api/generate',
@@ -1631,18 +1653,51 @@ router.post('/ai/generate', async (req, res) => {
             }
         };
 
-        const proxyReq = http.request(ollamaOptions, (proxyRes) => {
+        const proxyReq2 = http.request(ollamaOptions2, (proxyRes) => {
+            let responseData = '';
+            
             res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'application/json');
-            proxyRes.pipe(res);
+            
+            proxyRes.on('data', (chunk) => {
+                responseData += chunk.toString();
+                res.write(chunk);
+            });
+
+            proxyRes.on('end', () => {
+                res.end();
+                
+                // Enregistrer l'utilisation avec requête et réponse complètes
+                try {
+                    const parsedResponse = JSON.parse(responseData);
+                    apiKeys.recordUsage(apiKey, {
+                        endpoint: '/api/ai/generate',
+                        model: keyData.modelName,
+                        request: {
+                            prompt: prompt,
+                            stream: stream || false
+                        },
+                        response: parsedResponse
+                    });
+                } catch (e) {
+                    apiKeys.recordUsage(apiKey, {
+                        endpoint: '/api/ai/generate',
+                        model: keyData.modelName,
+                        request: {
+                            prompt: prompt,
+                            stream: stream || false
+                        }
+                    });
+                }
+            });
         });
 
-        proxyReq.on('error', (error) => {
+        proxyReq2.on('error', (error) => {
             logger.error(`Erreur proxy Ollama: ${error.message}`);
             res.status(500).json({ success: false, error: 'Erreur de communication avec Ollama' });
         });
 
-        proxyReq.write(JSON.stringify(ollamaRequest));
-        proxyReq.end();
+        proxyReq2.write(JSON.stringify(ollamaRequest));
+        proxyReq2.end();
 
     } catch (error) {
         logger.error(`API: ${error.message}`);

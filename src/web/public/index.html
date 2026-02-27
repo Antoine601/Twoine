@@ -4158,10 +4158,7 @@
             }
 
             async function handleShowDetail(key) {
-                setSelectedKey(key);
-                setShowDetailModal(true);
-                const result = await api.get(`/api/api-keys/${key.id}/usage?limit=1000`);
-                if (result.success) setDetailedUsage(result.data);
+                onNavigate('api-key-detail', key.id);
             }
 
             async function handleShowUsage(key) {
@@ -4703,6 +4700,322 @@
         }
 
         // ============================================
+        // API Key Detail Page
+        // ============================================
+        function APIKeyDetailPage({ keyId, onNavigate, showToast }) {
+            const [apiKey, setApiKey] = useState(null);
+            const [usage, setUsage] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [selectedRequest, setSelectedRequest] = useState(null);
+            const [showRequestModal, setShowRequestModal] = useState(false);
+            const [filter, setFilter] = useState('all');
+            const [page, setPage] = useState(0);
+            const [limit] = useState(20);
+
+            const loadKeyData = useCallback(async () => {
+                setLoading(true);
+                const [keyResult, usageResult] = await Promise.all([
+                    api.get('/api/api-keys'),
+                    api.get(`/api/api-keys/${keyId}/usage?limit=1000`)
+                ]);
+                
+                if (keyResult.success) {
+                    const key = keyResult.data.find(k => k.id === keyId);
+                    setApiKey(key);
+                }
+                
+                if (usageResult.success) {
+                    setUsage(usageResult.data);
+                }
+                
+                setLoading(false);
+            }, [keyId]);
+
+            useEffect(() => { loadKeyData(); }, [loadKeyData]);
+
+            const filteredUsage = filter === 'all' 
+                ? usage 
+                : usage.filter(u => u.endpoint === filter);
+
+            const paginatedUsage = filteredUsage.slice(page * limit, (page + 1) * limit);
+            const totalPages = Math.ceil(filteredUsage.length / limit);
+
+            function viewRequest(request) {
+                setSelectedRequest(request);
+                setShowRequestModal(true);
+            }
+
+            if (loading) {
+                return (
+                    <div className="flex items-center justify-center h-64">
+                        <Icon name="loader-2" size={32} className="animate-spin text-gray-400" />
+                    </div>
+                );
+            }
+
+            if (!apiKey) {
+                return (
+                    <div className="fade-in">
+                        <div className="bg-white border border-gray-200 rounded-xl px-6 py-12 text-center shadow-sm">
+                            <Icon name="alert-circle" size={48} className="text-gray-300 mx-auto mb-4" />
+                            <p className="text-gray-600 mb-4">Clé API non trouvée</p>
+                            <button onClick={() => onNavigate('api-keys')} className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium transition-colors">
+                                Retour aux clés API
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="fade-in">
+                    {/* Header */}
+                    <div className="mb-6">
+                        <button onClick={() => onNavigate('api-keys')} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4 text-sm">
+                            <Icon name="arrow-left" size={16} /> Retour aux clés API
+                        </button>
+                        <div className="flex items-start justify-between gap-4">
+                            <div className="flex items-start gap-4">
+                                <div className="w-14 h-14 bg-primary-50 rounded-xl flex items-center justify-center shrink-0">
+                                    <Icon name="key" size={24} className="text-primary-600" />
+                                </div>
+                                <div>
+                                    <h1 className="text-2xl font-bold text-gray-900">{apiKey.name}</h1>
+                                    <code className="text-sm text-gray-500 block mt-1">{apiKey.key}</code>
+                                </div>
+                            </div>
+                            <span className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
+                                apiKey.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                            }`}>
+                                {apiKey.status === 'active' ? 'Active' : 'Désactivée'}
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Stats Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                        <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                            <p className="text-xs text-gray-500 mb-1">Modèle IA</p>
+                            <p className="text-lg font-semibold text-gray-900">{apiKey.modelName}</p>
+                        </div>
+                        <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                            <p className="text-xs text-gray-500 mb-1">Limite</p>
+                            <p className="text-lg font-semibold text-gray-900">{apiKey.limits?.requestsPerMinute || 0} req/min</p>
+                        </div>
+                        <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                            <p className="text-xs text-gray-500 mb-1">Total requêtes</p>
+                            <p className="text-lg font-semibold text-gray-900">{usage.length}</p>
+                        </div>
+                        <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                            <p className="text-xs text-gray-500 mb-1">Projets</p>
+                            <p className="text-lg font-semibold text-gray-900">{apiKey.projects?.length || 0}</p>
+                        </div>
+                    </div>
+
+                    {/* Projects */}
+                    {apiKey.projects && apiKey.projects.length > 0 && (
+                        <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm mb-6">
+                            <h3 className="text-sm font-semibold text-gray-900 mb-3">Projets associés</h3>
+                            <div className="flex flex-wrap gap-2">
+                                {apiKey.projects.map(p => (
+                                    <span key={p} className="px-3 py-1.5 bg-primary-50 text-primary-700 rounded-lg text-sm font-medium border border-primary-200">{p}</span>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Filters */}
+                    <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm mb-6">
+                        <div className="flex items-center justify-between gap-4">
+                            <h3 className="text-sm font-semibold text-gray-900">Historique des requêtes</h3>
+                            <div className="flex items-center gap-2">
+                                <select 
+                                    value={filter} 
+                                    onChange={(e) => { setFilter(e.target.value); setPage(0); }}
+                                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/10"
+                                >
+                                    <option value="all">Tous les endpoints</option>
+                                    <option value="/api/ai/chat">Chat</option>
+                                    <option value="/api/ai/generate">Generate</option>
+                                </select>
+                                <button onClick={loadKeyData} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 transition-colors">
+                                    <Icon name="refresh-cw" size={16} />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Requests List */}
+                    {paginatedUsage.length === 0 ? (
+                        <div className="bg-white border border-gray-200 rounded-xl px-6 py-12 text-center shadow-sm">
+                            <Icon name="inbox" size={48} className="text-gray-300 mx-auto mb-4" />
+                            <p className="text-gray-600">Aucune requête enregistrée</p>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="space-y-3 mb-6">
+                                {paginatedUsage.map((req, i) => (
+                                    <div 
+                                        key={i} 
+                                        className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-all cursor-pointer"
+                                        onClick={() => viewRequest(req)}
+                                    >
+                                        <div className="flex items-start justify-between gap-4">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-3 mb-2">
+                                                    <span className={`px-2 py-1 rounded-lg text-xs font-medium ${
+                                                        req.endpoint === '/api/ai/chat' 
+                                                            ? 'bg-blue-100 text-blue-700' 
+                                                            : 'bg-purple-100 text-purple-700'
+                                                    }`}>
+                                                        {req.endpoint === '/api/ai/chat' ? 'Chat' : 'Generate'}
+                                                    </span>
+                                                    <span className="text-xs text-gray-500">
+                                                        {new Date(req.timestamp).toLocaleString('fr-FR', {
+                                                            day: '2-digit',
+                                                            month: '2-digit',
+                                                            year: 'numeric',
+                                                            hour: '2-digit',
+                                                            minute: '2-digit',
+                                                            second: '2-digit'
+                                                        })}
+                                                    </span>
+                                                    <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs">
+                                                        {req.model}
+                                                    </span>
+                                                </div>
+                                                <div className="text-sm text-gray-700">
+                                                    {req.request?.messages ? (
+                                                        <p className="truncate">
+                                                            <span className="font-medium">{req.request.messages.length} message(s)</span>
+                                                            {req.request.messages[req.request.messages.length - 1]?.content && 
+                                                                ` - ${req.request.messages[req.request.messages.length - 1].content.substring(0, 80)}...`
+                                                            }
+                                                        </p>
+                                                    ) : req.request?.prompt ? (
+                                                        <p className="truncate">
+                                                            <span className="font-medium">Prompt:</span> {req.request.prompt.substring(0, 100)}...
+                                                        </p>
+                                                    ) : (
+                                                        <p className="text-gray-500">Requête sans détails</p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <Icon name="chevron-right" size={20} className="text-gray-400 shrink-0" />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Pagination */}
+                            {totalPages > 1 && (
+                                <div className="flex items-center justify-between bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                                    <p className="text-sm text-gray-600">
+                                        Page {page + 1} sur {totalPages} ({filteredUsage.length} requête{filteredUsage.length > 1 ? 's' : ''})
+                                    </p>
+                                    <div className="flex gap-2">
+                                        <button 
+                                            onClick={() => setPage(p => Math.max(0, p - 1))}
+                                            disabled={page === 0}
+                                            className="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            Précédent
+                                        </button>
+                                        <button 
+                                            onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                                            disabled={page >= totalPages - 1}
+                                            className="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            Suivant
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                    {/* Request Detail Modal */}
+                    {showRequestModal && selectedRequest && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowRequestModal(false)}>
+                            <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+                                <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-primary-50 to-primary-100">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 bg-primary-600 rounded-lg flex items-center justify-center">
+                                            <Icon name="code" size={20} className="text-white" />
+                                        </div>
+                                        <div>
+                                            <h2 className="text-lg font-bold text-gray-900">Détails de la requête</h2>
+                                            <p className="text-xs text-gray-600">
+                                                {new Date(selectedRequest.timestamp).toLocaleString('fr-FR')}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setShowRequestModal(false)} className="p-2 rounded-lg hover:bg-primary-200 text-gray-700 transition-colors">
+                                        <Icon name="x" size={20} />
+                                    </button>
+                                </div>
+                                
+                                <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+                                    {/* Metadata */}
+                                    <div className="grid grid-cols-2 gap-4 mb-6">
+                                        <div className="bg-gray-50 rounded-lg p-4">
+                                            <p className="text-xs text-gray-500 mb-1">Endpoint</p>
+                                            <code className="text-sm font-semibold text-gray-900">{selectedRequest.endpoint}</code>
+                                        </div>
+                                        <div className="bg-gray-50 rounded-lg p-4">
+                                            <p className="text-xs text-gray-500 mb-1">Modèle</p>
+                                            <p className="text-sm font-semibold text-gray-900">{selectedRequest.model}</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Request */}
+                                    <div className="mb-6">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <h3 className="text-sm font-semibold text-gray-900">Requête envoyée</h3>
+                                            <button
+                                                onClick={() => {
+                                                    navigator.clipboard.writeText(JSON.stringify(selectedRequest.request, null, 2));
+                                                    showToast('Requête copiée !', 'success');
+                                                }}
+                                                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs transition-colors"
+                                            >
+                                                <Icon name="copy" size={12} /> Copier
+                                            </button>
+                                        </div>
+                                        <div className="bg-gray-900 rounded-lg p-4 overflow-x-auto">
+                                            <pre className="text-xs text-green-400 font-mono">{JSON.stringify(selectedRequest.request, null, 2)}</pre>
+                                        </div>
+                                    </div>
+
+                                    {/* Response */}
+                                    {selectedRequest.response && (
+                                        <div>
+                                            <div className="flex items-center justify-between mb-3">
+                                                <h3 className="text-sm font-semibold text-gray-900">Réponse reçue</h3>
+                                                <button
+                                                    onClick={() => {
+                                                        navigator.clipboard.writeText(JSON.stringify(selectedRequest.response, null, 2));
+                                                        showToast('Réponse copiée !', 'success');
+                                                    }}
+                                                    className="flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs transition-colors"
+                                                >
+                                                    <Icon name="copy" size={12} /> Copier
+                                                </button>
+                                            </div>
+                                            <div className="bg-gray-900 rounded-lg p-4 overflow-x-auto">
+                                                <pre className="text-xs text-blue-400 font-mono">{JSON.stringify(selectedRequest.response, null, 2)}</pre>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ============================================
         // PM2 Status Page
         // ============================================
         function PM2StatusPage({ showToast }) {
@@ -4973,7 +5286,9 @@
                         if (!isAdmin) return <DashboardPage projects={visibleProjects} onNavigate={navigate} onRefresh={loadProjects} showToast={showToast} currentUser={currentUser} />;
                         return <AIModelsPage showToast={showToast} />;
                     case 'api-keys':
-                        return <APIKeysPage showToast={showToast} currentUser={currentUser} allProjects={allProjects} />;
+                        return <APIKeysPage showToast={showToast} currentUser={currentUser} allProjects={allProjects} onNavigate={navigate} />;
+                    case 'api-key-detail':
+                        return <APIKeyDetailPage keyId={pageParam} onNavigate={navigate} showToast={showToast} />;
                     case 'pm2':
                         if (!isAdmin) return <DashboardPage projects={visibleProjects} onNavigate={navigate} onRefresh={loadProjects} showToast={showToast} currentUser={currentUser} />;
                         return <PM2StatusPage showToast={showToast} />;
