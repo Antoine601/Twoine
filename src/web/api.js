@@ -1339,6 +1339,48 @@ router.post('/admin/ai-models/install', async (req, res) => {
 });
 
 /**
+ * POST /api/admin/ai-models/chat - Chat avec un modèle (admin uniquement)
+ */
+router.post('/admin/ai-models/chat', async (req, res) => {
+    try {
+        const { model, messages, stream } = req.body;
+        
+        if (!model || !messages) {
+            return res.status(400).json({ success: false, error: 'Modèle et messages requis' });
+        }
+
+        const ollamaRequest = { model, messages, stream: stream || false };
+
+        const ollamaOptions = {
+            hostname: 'localhost',
+            port: 11434,
+            path: '/api/chat',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        };
+
+        const proxyReq = http.request(ollamaOptions, (proxyRes) => {
+            res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'application/json');
+            proxyRes.pipe(res);
+        });
+
+        proxyReq.on('error', (error) => {
+            logger.error(`Erreur proxy Ollama: ${error.message}`);
+            res.status(500).json({ success: false, error: 'Erreur de communication avec Ollama' });
+        });
+
+        proxyReq.write(JSON.stringify(ollamaRequest));
+        proxyReq.end();
+
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
  * DELETE /api/admin/ai-models/:modelName - Supprimer un modèle
  */
 router.delete('/admin/ai-models/:modelName', async (req, res) => {

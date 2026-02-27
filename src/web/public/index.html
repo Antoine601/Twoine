@@ -3939,7 +3939,7 @@
                 setChatLoading(true);
 
                 try {
-                    const response = await fetch('http://localhost:11434/api/chat', {
+                    const response = await fetch('/api/admin/ai-models/chat', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -3956,7 +3956,7 @@
                         showToast('Erreur lors de l\'envoi du message', 'error');
                     }
                 } catch (error) {
-                    showToast('Erreur de connexion à Ollama', 'error');
+                    showToast('Erreur de connexion au serveur', 'error');
                 }
 
                 setChatLoading(false);
