@@ -24,7 +24,7 @@ export function addService(projectName, serviceConfig) {
     }
 
     // Valider le runtime
-    const validRuntimes = ['nodejs', 'python', 'php'];
+    const validRuntimes = ['nodejs', 'python', 'php', 'html'];
     const selectedRuntime = runtime || 'nodejs';
     if (!validRuntimes.includes(selectedRuntime)) {
         throw new Error(`Runtime invalide. Choisissez parmi: ${validRuntimes.join(', ')}`);
@@ -56,6 +56,8 @@ export function addService(projectName, serviceConfig) {
         defaultCommand = 'python3 app.py';
     } else if (selectedRuntime === 'php') {
         defaultCommand = 'php -S 0.0.0.0:8000';
+    } else if (selectedRuntime === 'html') {
+        defaultCommand = 'python3 -m http.server 8000';
     }
 
     // Créer le service
@@ -152,7 +154,7 @@ export function updateService(projectName, serviceName, updates) {
     }
 
     if (updates.runtime !== undefined) {
-        const validRuntimes = ['nodejs', 'python', 'php'];
+        const validRuntimes = ['nodejs', 'python', 'php', 'html'];
         if (!validRuntimes.includes(updates.runtime)) {
             throw new Error(`Runtime invalide. Choisissez parmi: ${validRuntimes.join(', ')}`);
         }

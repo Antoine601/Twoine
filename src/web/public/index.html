@@ -1181,20 +1181,32 @@
         // Add Service Modal
         // ============================================
         function AddServiceModal({ projectName, onClose, onSuccess, showToast }) {
-            const [form, setForm] = useState({ name: '', directory: '', command: '', description: '', setupCommands: '', runtime: 'nodejs' });
+            const [form, setForm] = useState({ name: '', directory: '', command: '', description: '', setupCommands: '', runtime: 'nodejs', port: '8000' });
             const [loading, setLoading] = useState(false);
 
             // Mettre à jour la commande par défaut selon le runtime
             const handleRuntimeChange = (runtime) => {
                 let defaultCommand = '';
+                let defaultPort = '8000';
                 if (runtime === 'nodejs') {
                     defaultCommand = 'npm start';
                 } else if (runtime === 'python') {
                     defaultCommand = 'python3 app.py';
                 } else if (runtime === 'php') {
                     defaultCommand = 'php -S 0.0.0.0:8000';
+                } else if (runtime === 'html') {
+                    defaultCommand = `python3 -m http.server ${form.port || defaultPort}`;
                 }
-                setForm({...form, runtime, command: defaultCommand});
+                setForm({...form, runtime, command: defaultCommand, port: defaultPort});
+            };
+
+            // Mettre à jour la commande quand le port change (pour HTML Vanilla)
+            const handlePortChange = (port) => {
+                if (form.runtime === 'html') {
+                    setForm({...form, port, command: `python3 -m http.server ${port}`});
+                } else {
+                    setForm({...form, port});
+                }
             };
 
             async function handleSubmit(e) {
@@ -1233,6 +1245,7 @@
                                 <option value="nodejs">Node.js</option>
                                 <option value="python">Python</option>
                                 <option value="php">PHP</option>
+                                <option value="html">HTML Vanilla</option>
                             </select>
                         </div>
                         <div>
@@ -1242,13 +1255,23 @@
                             <input type="text" value={form.directory} onChange={e => setForm({...form, directory: e.target.value})} placeholder={form.name || 'nom-du-service'}
                                 className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm" />
                         </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-2">
-                                <Icon name="settings" size={14} /> Commandes de setup (séparées par ;)
-                            </label>
-                            <input type="text" value={form.setupCommands} onChange={e => setForm({...form, setupCommands: e.target.value})} placeholder="npm install; npm run build"
-                                className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm" />
-                        </div>
+                        {form.runtime === 'html' ? (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-2">
+                                    <Icon name="network" size={14} /> Port
+                                </label>
+                                <input type="number" value={form.port} onChange={e => handlePortChange(e.target.value)} placeholder="8000" required
+                                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm" />
+                            </div>
+                        ) : (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-2">
+                                    <Icon name="settings" size={14} /> Commandes de setup (séparées par ;)
+                                </label>
+                                <input type="text" value={form.setupCommands} onChange={e => setForm({...form, setupCommands: e.target.value})} placeholder="npm install; npm run build"
+                                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm" />
+                            </div>
+                        )}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-2">
                                 <Icon name="play-circle" size={14} /> Commande de démarrage (PM2)
@@ -1315,6 +1338,7 @@
                                 <option value="nodejs">Node.js</option>
                                 <option value="python">Python</option>
                                 <option value="php">PHP</option>
+                                <option value="html">HTML Vanilla</option>
                             </select>
                         </div>
                         <div>
