@@ -4038,9 +4038,16 @@
             const [showCreateModal, setShowCreateModal] = useState(false);
             const [showEditModal, setShowEditModal] = useState(false);
             const [showUsageModal, setShowUsageModal] = useState(false);
+            const [showDetailModal, setShowDetailModal] = useState(false);
+            const [showRevealModal, setShowRevealModal] = useState(false);
+            const [showNewKeyModal, setShowNewKeyModal] = useState(false);
             const [selectedKey, setSelectedKey] = useState(null);
+            const [newCreatedKey, setNewCreatedKey] = useState(null);
+            const [revealPassword, setRevealPassword] = useState('');
+            const [revealedKey, setRevealedKey] = useState(null);
             const [models, setModels] = useState([]);
             const [usage, setUsage] = useState([]);
+            const [detailedUsage, setDetailedUsage] = useState([]);
             const [form, setForm] = useState({
                 name: '',
                 modelName: '',
@@ -4080,8 +4087,9 @@
                     setForm({ name: '', modelName: '', projects: [], requestsPerMinute: 10 });
                     loadKeys();
                     
-                    // Show full key in alert
-                    alert(`Clé API créée !\n\nNom: ${result.data.name}\nClé: ${result.data.key}\n\n⚠️ IMPORTANT: Copiez cette clé maintenant, elle ne sera plus affichée en entier.`);
+                    // Show in modal instead of alert
+                    setNewCreatedKey(result.data);
+                    setShowNewKeyModal(true);
                 } else {
                     showToast(result.error, 'error');
                 }
@@ -4119,11 +4127,41 @@
                 const result = await api.post(`/api/api-keys/${key.id}/regenerate`);
                 if (result.success) {
                     showToast('Clé régénérée', 'success');
-                    alert(`Nouvelle clé: ${result.data.key}\n\n⚠️ Copiez-la maintenant !`);
+                    setNewCreatedKey(result.data);
+                    setShowNewKeyModal(true);
                     loadKeys();
                 } else {
                     showToast(result.error, 'error');
                 }
+            }
+
+            async function handleRevealKey(key) {
+                setSelectedKey(key);
+                setRevealPassword('');
+                setRevealedKey(null);
+                setShowRevealModal(true);
+            }
+
+            async function confirmRevealKey(e) {
+                e.preventDefault();
+                // Verify password
+                const result = await api.post('/api/auth/verify-password', {
+                    password: revealPassword
+                });
+                
+                if (result.success) {
+                    setRevealedKey(selectedKey.key);
+                    setRevealPassword('');
+                } else {
+                    showToast('Mot de passe incorrect', 'error');
+                }
+            }
+
+            async function handleShowDetail(key) {
+                setSelectedKey(key);
+                setShowDetailModal(true);
+                const result = await api.get(`/api/api-keys/${key.id}/usage?limit=1000`);
+                if (result.success) setDetailedUsage(result.data);
             }
 
             async function handleShowUsage(key) {
@@ -4163,9 +4201,11 @@
                             <button onClick={() => { setLoading(true); loadKeys(); }} className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 transition-colors text-sm">
                                 <Icon name="refresh-cw" size={15} /> Rafraîchir
                             </button>
-                            <button onClick={openCreateModal} className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition-colors text-sm font-medium">
-                                <Icon name="plus" size={15} /> Nouvelle clé
-                            </button>
+                            {isAdmin && (
+                                <button onClick={openCreateModal} className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition-colors text-sm font-medium">
+                                    <Icon name="plus" size={15} /> Nouvelle clé
+                                </button>
+                            )}
                         </div>
                     </div>
 
@@ -4174,15 +4214,17 @@
                     ) : apiKeys.length === 0 ? (
                         <div className="bg-white border border-gray-200 rounded-xl px-4 sm:px-6 py-12 sm:py-16 text-center shadow-sm">
                             <Icon name="key" size={48} className="text-gray-300 mx-auto mb-4" />
-                            <p className="text-sm sm:text-base text-gray-600 mb-4">Aucune clé API</p>
-                            <button onClick={openCreateModal} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium transition-colors">
-                                <Icon name="plus" size={15} /> Créer votre première clé
-                            </button>
+                            <p className="text-sm sm:text-base text-gray-600 mb-4">Aucune clé API{!isAdmin && ' assignée à vos projets'}</p>
+                            {isAdmin && (
+                                <button onClick={openCreateModal} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium transition-colors">
+                                    <Icon name="plus" size={15} /> Créer votre première clé
+                                </button>
+                            )}
                         </div>
                     ) : (
                         <div className="grid gap-4">
                             {apiKeys.map((key) => (
-                                <div key={key.id} className="bg-white border border-gray-200 rounded-xl p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow">
+                                <div key={key.id} className="bg-white border border-gray-200 rounded-xl p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow cursor-pointer" onClick={() => handleShowDetail(key)}>
                                     <div className="flex items-start justify-between gap-4 mb-4">
                                         <div className="flex items-start gap-3 flex-1 min-w-0">
                                             <div className="w-10 h-10 bg-primary-50 rounded-lg flex items-center justify-center shrink-0">
@@ -4190,7 +4232,16 @@
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <h3 className="font-semibold text-gray-900">{key.name}</h3>
-                                                <code className="text-xs text-gray-500 block mt-1 truncate">{key.key}</code>
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    <code className="text-xs text-gray-500 truncate">{key.key}</code>
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); handleRevealKey(key); }}
+                                                        className="p-1 rounded hover:bg-gray-100 text-gray-500 hover:text-primary-600 transition-colors"
+                                                        title="Révéler la clé complète"
+                                                    >
+                                                        <Icon name="eye" size={14} />
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
                                         <span className={`px-2 py-1 rounded-lg text-xs font-medium shrink-0 ${
@@ -4222,20 +4273,19 @@
                                         </div>
                                     )}
 
-                                    <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-200">
-                                        <button onClick={() => openEditModal(key)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium transition-colors">
-                                            <Icon name="edit" size={12} /> Éditer
-                                        </button>
-                                        <button onClick={() => handleShowUsage(key)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium transition-colors">
-                                            <Icon name="bar-chart" size={12} /> Usage
-                                        </button>
-                                        <button onClick={() => handleRegenerate(key)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-700 text-xs font-medium transition-colors">
-                                            <Icon name="refresh-cw" size={12} /> Régénérer
-                                        </button>
-                                        <button onClick={() => handleDelete(key)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-100 hover:bg-red-200 text-red-700 text-xs font-medium transition-colors">
-                                            <Icon name="trash-2" size={12} /> Supprimer
-                                        </button>
-                                    </div>
+                                    {isAdmin && (
+                                        <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-200" onClick={(e) => e.stopPropagation()}>
+                                            <button onClick={() => openEditModal(key)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium transition-colors">
+                                                <Icon name="edit" size={12} /> Éditer
+                                            </button>
+                                            <button onClick={() => handleRegenerate(key)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-700 text-xs font-medium transition-colors">
+                                                <Icon name="refresh-cw" size={12} /> Régénérer
+                                            </button>
+                                            <button onClick={() => handleDelete(key)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-100 hover:bg-red-200 text-red-700 text-xs font-medium transition-colors">
+                                                <Icon name="trash-2" size={12} /> Supprimer
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                             ))}
                         </div>
@@ -4416,42 +4466,234 @@
                         </div>
                     )}
 
-                    {/* Usage Modal */}
-                    {showUsageModal && selectedKey && (
-                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowUsageModal(false)}>
-                            <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+                    {/* Reveal Key Modal (with password) */}
+                    {showRevealModal && selectedKey && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowRevealModal(false)}>
+                            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full" onClick={e => e.stopPropagation()}>
                                 <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-                                    <h2 className="text-lg font-bold text-gray-900">Historique d'utilisation - {selectedKey.name}</h2>
-                                    <button onClick={() => setShowUsageModal(false)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
+                                    <h2 className="text-lg font-bold text-gray-900">Révéler la clé API</h2>
+                                    <button onClick={() => setShowRevealModal(false)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
                                         <Icon name="x" size={20} />
                                     </button>
                                 </div>
-                                <div className="p-6 overflow-y-auto max-h-[calc(80vh-120px)]">
-                                    {usage.length === 0 ? (
-                                        <div className="text-center py-12">
-                                            <Icon name="bar-chart" size={48} className="text-gray-300 mx-auto mb-4" />
-                                            <p className="text-gray-600">Aucune utilisation enregistrée</p>
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-3">
-                                            {usage.map((u, i) => (
-                                                <div key={i} className="border border-gray-200 rounded-lg p-4">
-                                                    <div className="flex items-start justify-between gap-4">
-                                                        <div className="flex-1">
-                                                            <p className="text-sm font-medium text-gray-900">{u.endpoint}</p>
-                                                            <p className="text-xs text-gray-500 mt-1">
-                                                                {new Date(u.timestamp).toLocaleString('fr-FR')}
-                                                            </p>
-                                                        </div>
-                                                        <div className="text-right">
-                                                            <p className="text-xs text-gray-500">Modèle</p>
-                                                            <p className="text-sm font-medium text-gray-900">{u.model}</p>
-                                                        </div>
-                                                    </div>
+                                <div className="p-6">
+                                    {!revealedKey ? (
+                                        <form onSubmit={confirmRevealKey} className="space-y-4">
+                                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
+                                                <Icon name="shield-alert" size={20} className="text-amber-600 shrink-0 mt-0.5" />
+                                                <div>
+                                                    <p className="text-sm font-medium text-amber-900">Sécurité requise</p>
+                                                    <p className="text-xs text-amber-700 mt-1">Entrez votre mot de passe pour révéler la clé complète</p>
                                                 </div>
-                                            ))}
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1.5">Mot de passe</label>
+                                                <input
+                                                    type="password"
+                                                    value={revealPassword}
+                                                    onChange={e => setRevealPassword(e.target.value)}
+                                                    required
+                                                    autoFocus
+                                                    placeholder="Votre mot de passe"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/10 text-sm"
+                                                />
+                                            </div>
+                                            <div className="flex gap-3 pt-2">
+                                                <button type="button" onClick={() => setShowRevealModal(false)} className="flex-1 px-4 py-2.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium transition-colors">
+                                                    Annuler
+                                                </button>
+                                                <button type="submit" className="flex-1 px-4 py-2.5 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium transition-colors">
+                                                    Révéler
+                                                </button>
+                                            </div>
+                                        </form>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                                                <p className="text-xs text-green-700 mb-2 font-medium">Clé API complète</p>
+                                                <code className="text-sm text-green-900 break-all block bg-white p-3 rounded border border-green-200">{revealedKey}</code>
+                                                <button
+                                                    onClick={() => {
+                                                        navigator.clipboard.writeText(revealedKey);
+                                                        showToast('Clé copiée !', 'success');
+                                                    }}
+                                                    className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium transition-colors"
+                                                >
+                                                    <Icon name="copy" size={14} /> Copier la clé
+                                                </button>
+                                            </div>
+                                            <button onClick={() => { setShowRevealModal(false); setRevealedKey(null); }} className="w-full px-4 py-2.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium transition-colors">
+                                                Fermer
+                                            </button>
                                         </div>
                                     )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* New Key Created Modal */}
+                    {showNewKeyModal && newCreatedKey && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowNewKeyModal(false)}>
+                            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full" onClick={e => e.stopPropagation()}>
+                                <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-green-50">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                                            <Icon name="check-circle" size={20} className="text-green-600" />
+                                        </div>
+                                        <h2 className="text-lg font-bold text-green-900">Clé API créée avec succès !</h2>
+                                    </div>
+                                    <button onClick={() => setShowNewKeyModal(false)} className="p-2 rounded-lg hover:bg-green-100 text-green-700 transition-colors">
+                                        <Icon name="x" size={20} />
+                                    </button>
+                                </div>
+                                <div className="p-6 space-y-4">
+                                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
+                                        <Icon name="alert-triangle" size={20} className="text-amber-600 shrink-0 mt-0.5" />
+                                        <div>
+                                            <p className="text-sm font-medium text-amber-900">⚠️ Important - À lire absolument</p>
+                                            <p className="text-xs text-amber-700 mt-1">Cette clé ne sera plus jamais affichée en entier. Copiez-la maintenant et stockez-la en sécurité !</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Nom de la clé</label>
+                                        <p className="text-base font-semibold text-gray-900">{newCreatedKey.name}</p>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Clé API complète</label>
+                                        <div className="bg-gray-50 border border-gray-300 rounded-lg p-4">
+                                            <code className="text-sm text-gray-900 break-all block">{newCreatedKey.key}</code>
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(newCreatedKey.key);
+                                                showToast('Clé copiée dans le presse-papier !', 'success');
+                                            }}
+                                            className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium transition-colors"
+                                        >
+                                            <Icon name="copy" size={16} /> Copier la clé
+                                        </button>
+                                    </div>
+
+                                    <div className="pt-4 border-t border-gray-200">
+                                        <button onClick={() => { setShowNewKeyModal(false); setNewCreatedKey(null); }} className="w-full px-4 py-2.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium transition-colors">
+                                            J'ai copié la clé, fermer
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Detail Modal (click on key card) */}
+                    {showDetailModal && selectedKey && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowDetailModal(false)}>
+                            <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[85vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+                                <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-primary-50 to-primary-100">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 bg-primary-600 rounded-lg flex items-center justify-center">
+                                            <Icon name="key" size={20} className="text-white" />
+                                        </div>
+                                        <div>
+                                            <h2 className="text-lg font-bold text-gray-900">{selectedKey.name}</h2>
+                                            <p className="text-xs text-gray-600">Détails et historique complet</p>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setShowDetailModal(false)} className="p-2 rounded-lg hover:bg-primary-200 text-gray-700 transition-colors">
+                                        <Icon name="x" size={20} />
+                                    </button>
+                                </div>
+                                
+                                <div className="p-6 overflow-y-auto max-h-[calc(85vh-120px)]">
+                                    {/* Key Info */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                                        <div className="bg-gray-50 rounded-lg p-4">
+                                            <p className="text-xs text-gray-500 mb-1">Clé API</p>
+                                            <div className="flex items-center gap-2">
+                                                <code className="text-sm text-gray-900 truncate flex-1">{selectedKey.key}</code>
+                                                <button 
+                                                    onClick={() => handleRevealKey(selectedKey)}
+                                                    className="p-1.5 rounded hover:bg-gray-200 text-gray-600 hover:text-primary-600 transition-colors"
+                                                    title="Révéler la clé complète"
+                                                >
+                                                    <Icon name="eye" size={16} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div className="bg-gray-50 rounded-lg p-4">
+                                            <p className="text-xs text-gray-500 mb-1">Statut</p>
+                                            <span className={`inline-flex px-3 py-1 rounded-lg text-sm font-medium ${
+                                                selectedKey.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                            }`}>
+                                                {selectedKey.status === 'active' ? 'Active' : 'Désactivée'}
+                                            </span>
+                                        </div>
+                                        <div className="bg-gray-50 rounded-lg p-4">
+                                            <p className="text-xs text-gray-500 mb-1">Modèle IA</p>
+                                            <p className="text-sm font-semibold text-gray-900">{selectedKey.modelName}</p>
+                                        </div>
+                                        <div className="bg-gray-50 rounded-lg p-4">
+                                            <p className="text-xs text-gray-500 mb-1">Limite</p>
+                                            <p className="text-sm font-semibold text-gray-900">{selectedKey.limits?.requestsPerMinute || 0} requêtes/minute</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Projects */}
+                                    {selectedKey.projects && selectedKey.projects.length > 0 && (
+                                        <div className="mb-6">
+                                            <h3 className="text-sm font-semibold text-gray-900 mb-3">Projets associés</h3>
+                                            <div className="flex flex-wrap gap-2">
+                                                {selectedKey.projects.map(p => (
+                                                    <span key={p} className="px-3 py-1.5 bg-primary-50 text-primary-700 rounded-lg text-sm font-medium border border-primary-200">{p}</span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Usage History */}
+                                    <div>
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h3 className="text-sm font-semibold text-gray-900">Historique d'utilisation</h3>
+                                            <span className="text-xs text-gray-500">{detailedUsage.length} requête{detailedUsage.length > 1 ? 's' : ''}</span>
+                                        </div>
+                                        
+                                        {detailedUsage.length === 0 ? (
+                                            <div className="text-center py-12 bg-gray-50 rounded-lg">
+                                                <Icon name="bar-chart" size={48} className="text-gray-300 mx-auto mb-4" />
+                                                <p className="text-gray-600">Aucune requête enregistrée</p>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-2 max-h-96 overflow-y-auto">
+                                                {detailedUsage.map((u, i) => (
+                                                    <div key={i} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                                                        <div className="flex items-start justify-between gap-4">
+                                                            <div className="flex-1">
+                                                                <div className="flex items-center gap-2 mb-2">
+                                                                    <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium">{u.endpoint}</span>
+                                                                    <span className="text-xs text-gray-500">
+                                                                        {new Date(u.timestamp).toLocaleString('fr-FR', { 
+                                                                            day: '2-digit', 
+                                                                            month: '2-digit', 
+                                                                            year: 'numeric',
+                                                                            hour: '2-digit', 
+                                                                            minute: '2-digit',
+                                                                            second: '2-digit'
+                                                                        })}
+                                                                    </span>
+                                                                </div>
+                                                                <p className="text-xs text-gray-600">Modèle: <span className="font-medium text-gray-900">{u.model}</span></p>
+                                                            </div>
+                                                            <div className="text-right shrink-0">
+                                                                <Icon name="check-circle" size={16} className="text-green-500" />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>

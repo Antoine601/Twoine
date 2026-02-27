@@ -402,6 +402,34 @@ router.post('/auth/login', (req, res) => {
     }
 });
 
+/**
+ * POST /api/auth/verify-password - Vérifier le mot de passe de l'utilisateur connecté
+ */
+router.post('/auth/verify-password', (req, res) => {
+    try {
+        const { password } = req.body;
+        const currentUser = req.session?.user;
+
+        if (!currentUser) {
+            return res.status(401).json({ success: false, error: 'Non authentifié' });
+        }
+
+        if (!password) {
+            return res.status(400).json({ success: false, error: 'Mot de passe requis' });
+        }
+
+        const result = users.authenticate(currentUser.username, password);
+        if (!result.success) {
+            return res.status(401).json({ success: false, error: 'Mot de passe incorrect' });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // ============================================
 // GESTION DES UTILISATEURS
 // ============================================
