@@ -4219,21 +4219,25 @@
                             )}
                         </div>
                     ) : (
-                        <div className="grid gap-4">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
                             {apiKeys.map((key) => (
-                                <div key={key.id} className="bg-white border border-gray-200 rounded-xl p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow cursor-pointer" onClick={() => handleShowDetail(key)}>
-                                    <div className="flex items-start justify-between gap-4 mb-4">
-                                        <div className="flex items-start gap-3 flex-1 min-w-0">
-                                            <div className="w-10 h-10 bg-primary-50 rounded-lg flex items-center justify-center shrink-0">
-                                                <Icon name="key" size={20} className="text-primary-600" />
+                                <div 
+                                    key={key.id} 
+                                    className="bg-gradient-to-br from-white to-gray-50 border-2 border-gray-200 rounded-2xl p-6 shadow-lg hover:shadow-2xl hover:scale-105 transition-all cursor-pointer group"
+                                    onClick={() => handleShowDetail(key)}
+                                >
+                                    <div className="flex items-start justify-between mb-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
+                                                <Icon name="key" size={24} className="text-white" />
                                             </div>
-                                            <div className="flex-1 min-w-0">
-                                                <h3 className="font-semibold text-gray-900">{key.name}</h3>
+                                            <div>
+                                                <h3 className="font-bold text-gray-900 text-lg">{key.name}</h3>
                                                 <div className="flex items-center gap-2 mt-1">
-                                                    <code className="text-xs text-gray-500 truncate">{key.key}</code>
+                                                    <code className="text-xs text-gray-500 truncate max-w-[150px]">{key.key}</code>
                                                     <button 
                                                         onClick={(e) => { e.stopPropagation(); handleRevealKey(key); }}
-                                                        className="p-1 rounded hover:bg-gray-100 text-gray-500 hover:text-primary-600 transition-colors"
+                                                        className="p-1 rounded-lg hover:bg-primary-100 text-gray-500 hover:text-primary-600 transition-colors"
                                                         title="Révéler la clé complète"
                                                     >
                                                         <Icon name="eye" size={14} />
@@ -4241,45 +4245,56 @@
                                                 </div>
                                             </div>
                                         </div>
-                                        <span className={`px-2 py-1 rounded-lg text-xs font-medium shrink-0 ${
-                                            key.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                        <span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${
+                                            key.status === 'active' 
+                                                ? 'bg-gradient-to-r from-green-400 to-green-500 text-white' 
+                                                : 'bg-gradient-to-r from-red-400 to-red-500 text-white'
                                         }`}>
                                             {key.status === 'active' ? 'Active' : 'Désactivée'}
                                         </span>
                                     </div>
-                                    
-                                    <div className="grid grid-cols-2 gap-3 mb-4">
-                                        <div>
-                                            <p className="text-xs text-gray-500 mb-1">Modèle</p>
-                                            <p className="text-sm font-medium text-gray-900">{key.modelName}</p>
+
+                                    <div className="space-y-3 mb-4">
+                                        <div className="flex items-center justify-between p-3 bg-white rounded-xl border border-gray-200">
+                                            <div className="flex items-center gap-2">
+                                                <Icon name="cpu" size={16} className="text-primary-600" />
+                                                <span className="text-xs text-gray-600 font-medium">Modèle</span>
+                                            </div>
+                                            <span className="text-sm font-bold text-gray-900">{key.modelName}</span>
                                         </div>
-                                        <div>
-                                            <p className="text-xs text-gray-500 mb-1">Limite</p>
-                                            <p className="text-sm font-medium text-gray-900">{key.limits?.requestsPerMinute || 0} req/min</p>
+                                        <div className="flex items-center justify-between p-3 bg-white rounded-xl border border-gray-200">
+                                            <div className="flex items-center gap-2">
+                                                <Icon name="zap" size={16} className="text-amber-600" />
+                                                <span className="text-xs text-gray-600 font-medium">Limite</span>
+                                            </div>
+                                            <span className="text-sm font-bold text-gray-900">{key.limits?.requestsPerMinute || 0} req/min</span>
                                         </div>
                                     </div>
 
                                     {key.projects && key.projects.length > 0 && (
                                         <div className="mb-4">
-                                            <p className="text-xs text-gray-500 mb-2">Projets associés</p>
-                                            <div className="flex flex-wrap gap-1">
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <Icon name="folder" size={14} className="text-gray-500" />
+                                                <p className="text-xs text-gray-600 font-medium">Projets associés</p>
+                                            </div>
+                                            <div className="flex flex-wrap gap-1.5">
                                                 {key.projects.map(p => (
-                                                    <span key={p} className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">{p}</span>
+                                                    <span key={p} className="px-2.5 py-1 bg-primary-100 text-primary-700 rounded-lg text-xs font-medium border border-primary-200">{p}</span>
                                                 ))}
                                             </div>
                                         </div>
                                     )}
 
                                     {isAdmin && (
-                                        <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-200" onClick={(e) => e.stopPropagation()}>
-                                            <button onClick={() => openEditModal(key)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium transition-colors">
-                                                <Icon name="edit" size={12} /> Éditer
+                                        <div className="flex flex-wrap gap-2 pt-4 border-t-2 border-gray-200" onClick={(e) => e.stopPropagation()}>
+                                            <button onClick={() => openEditModal(key)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-gray-100 to-gray-200 hover:from-gray-200 hover:to-gray-300 text-gray-700 text-xs font-bold transition-all shadow-sm hover:shadow">
+                                                <Icon name="edit" size={14} /> Éditer
                                             </button>
-                                            <button onClick={() => handleRegenerate(key)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-700 text-xs font-medium transition-colors">
-                                                <Icon name="refresh-cw" size={12} /> Régénérer
+                                            <button onClick={() => handleRegenerate(key)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-amber-100 to-amber-200 hover:from-amber-200 hover:to-amber-300 text-amber-700 text-xs font-bold transition-all shadow-sm hover:shadow">
+                                                <Icon name="refresh-cw" size={14} /> Régénérer
                                             </button>
-                                            <button onClick={() => handleDelete(key)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-100 hover:bg-red-200 text-red-700 text-xs font-medium transition-colors">
-                                                <Icon name="trash-2" size={12} /> Supprimer
+                                            <button onClick={() => handleDelete(key)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-red-100 to-red-200 hover:from-red-200 hover:to-red-300 text-red-700 text-xs font-bold transition-all shadow-sm hover:shadow">
+                                                <Icon name="trash-2" size={14} /> Supprimer
                                             </button>
                                         </div>
                                     )}
