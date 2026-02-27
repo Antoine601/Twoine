@@ -222,6 +222,8 @@
                 { id: 'api-keys', icon: 'key', label: 'Clés API' },
                 ...(isAdmin ? [
                     { id: 'ai-models', icon: 'brain', label: 'Modèles IA' },
+                    { id: 'ai-chat', icon: 'message-square', label: 'Chat IA' },
+                    { id: 'ai-stats', icon: 'bar-chart-2', label: 'Statistiques IA' },
                     { id: 'users', icon: 'users', label: 'Utilisateurs' },
                     { id: 'pm2', icon: 'activity', label: 'Statut PM2' },
                 ] : []),
@@ -5031,6 +5033,445 @@
         }
 
         // ============================================
+        // AI Chat Page
+        // ============================================
+        function AIChatPage({ showToast }) {
+            const [models, setModels] = useState([]);
+            const [selectedModel, setSelectedModel] = useState('');
+            const [messages, setMessages] = useState([]);
+            const [input, setInput] = useState('');
+            const [loading, setLoading] = useState(false);
+            const [loadingModels, setLoadingModels] = useState(true);
+            const messagesEndRef = useRef(null);
+
+            const loadModels = useCallback(async () => {
+                const result = await api.get('/api/ai-models');
+                if (result.success && result.data.length > 0) {
+                    setModels(result.data);
+                    setSelectedModel(result.data[0].name);
+                }
+                setLoadingModels(false);
+            }, []);
+
+            useEffect(() => { loadModels(); }, [loadModels]);
+
+            useEffect(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }, [messages]);
+
+            async function sendMessage() {
+                if (!input.trim() || !selectedModel || loading) return;
+
+                const userMessage = { role: 'user', content: input.trim() };
+                setMessages(prev => [...prev, userMessage]);
+                setInput('');
+                setLoading(true);
+
+                try {
+                    const response = await fetch('http://localhost:11434/api/chat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            model: selectedModel,
+                            messages: [...messages, userMessage],
+                            stream: false
+                        })
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        setMessages(prev => [...prev, data.message]);
+                    } else {
+                        showToast('Erreur lors de l\'envoi du message', 'error');
+                    }
+                } catch (error) {
+                    showToast('Erreur de connexion à Ollama', 'error');
+                }
+
+                setLoading(false);
+            }
+
+            function clearChat() {
+                setMessages([]);
+            }
+
+            function handleKeyPress(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            }
+
+            return (
+                <div className="fade-in h-full flex flex-col">
+                    <div className="flex items-center justify-between mb-6">
+                        <div>
+                            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center shadow-lg">
+                                    <Icon name="message-square" size={20} className="text-white" />
+                                </div>
+                                Chat IA
+                            </h1>
+                            <p className="text-gray-600 mt-2 ml-13">Testez vos modèles IA directement depuis l'admin</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <select
+                                value={selectedModel}
+                                onChange={(e) => setSelectedModel(e.target.value)}
+                                disabled={loadingModels}
+                                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/10 text-sm"
+                            >
+                                {models.map(m => (
+                                    <option key={m.name} value={m.name}>{m.name}</option>
+                                ))}
+                            </select>
+                            <button
+                                onClick={clearChat}
+                                disabled={messages.length === 0}
+                                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <Icon name="trash-2" size={15} /> Effacer
+                            </button>
+                        </div>
+                    </div>
+
+                    {loadingModels ? (
+                        <div className="flex items-center justify-center h-64">
+                            <Icon name="loader-2" size={32} className="animate-spin text-gray-400" />
+                        </div>
+                    ) : models.length === 0 ? (
+                        <div className="bg-white border border-gray-200 rounded-xl px-6 py-12 text-center shadow-sm">
+                            <Icon name="brain" size={48} className="text-gray-300 mx-auto mb-4" />
+                            <p className="text-gray-600 mb-4">Aucun modèle IA installé</p>
+                            <p className="text-sm text-gray-500">Installez un modèle depuis la page Modèles IA</p>
+                        </div>
+                    ) : (
+                        <div className="flex-1 flex flex-col bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                            {/* Messages */}
+                            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                                {messages.length === 0 ? (
+                                    <div className="flex items-center justify-center h-full">
+                                        <div className="text-center">
+                                            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-primary-100 to-primary-200 flex items-center justify-center mx-auto mb-4">
+                                                <Icon name="message-square" size={32} className="text-primary-600" />
+                                            </div>
+                                            <h3 className="text-lg font-semibold text-gray-900 mb-2">Commencez une conversation</h3>
+                                            <p className="text-sm text-gray-500">Posez une question au modèle {selectedModel}</p>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    messages.map((msg, i) => (
+                                        <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                            <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${
+                                                msg.role === 'user'
+                                                    ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white'
+                                                    : 'bg-gray-100 text-gray-900'
+                                            }`}>
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <Icon 
+                                                        name={msg.role === 'user' ? 'user' : 'bot'} 
+                                                        size={14} 
+                                                        className={msg.role === 'user' ? 'text-white' : 'text-gray-600'}
+                                                    />
+                                                    <span className={`text-xs font-medium ${msg.role === 'user' ? 'text-white/80' : 'text-gray-600'}`}>
+                                                        {msg.role === 'user' ? 'Vous' : selectedModel}
+                                                    </span>
+                                                </div>
+                                                <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                                {loading && (
+                                    <div className="flex justify-start">
+                                        <div className="bg-gray-100 rounded-2xl px-4 py-3">
+                                            <Icon name="loader-2" size={16} className="animate-spin text-gray-600" />
+                                        </div>
+                                    </div>
+                                )}
+                                <div ref={messagesEndRef} />
+                            </div>
+
+                            {/* Input */}
+                            <div className="border-t border-gray-200 p-4">
+                                <div className="flex gap-3">
+                                    <textarea
+                                        value={input}
+                                        onChange={(e) => setInput(e.target.value)}
+                                        onKeyPress={handleKeyPress}
+                                        placeholder="Écrivez votre message... (Entrée pour envoyer)"
+                                        disabled={loading}
+                                        rows={1}
+                                        className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/10 resize-none disabled:opacity-50"
+                                    />
+                                    <button
+                                        onClick={sendMessage}
+                                        disabled={!input.trim() || loading}
+                                        className="px-6 py-3 rounded-xl bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800 text-white font-medium transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                    >
+                                        <Icon name="send" size={18} />
+                                        Envoyer
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ============================================
+        // AI Statistics Page
+        // ============================================
+        function AIStatsPage({ showToast }) {
+            const [stats, setStats] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [timeRange, setTimeRange] = useState('7d');
+
+            const loadStats = useCallback(async () => {
+                setLoading(true);
+                const [keysResult, usageResult] = await Promise.all([
+                    api.get('/api/api-keys'),
+                    api.get('/api/api-keys')
+                ]);
+
+                if (keysResult.success) {
+                    const keys = keysResult.data;
+                    const allUsage = [];
+                    
+                    for (const key of keys) {
+                        const result = await api.get(`/api/api-keys/${key.id}/usage?limit=10000`);
+                        if (result.success) {
+                            allUsage.push(...result.data.map(u => ({ ...u, keyName: key.name, keyId: key.id })));
+                        }
+                    }
+
+                    const now = Date.now();
+                    const ranges = {
+                        '24h': 24 * 60 * 60 * 1000,
+                        '7d': 7 * 24 * 60 * 60 * 1000,
+                        '30d': 30 * 24 * 60 * 60 * 1000,
+                        'all': Infinity
+                    };
+
+                    const filteredUsage = allUsage.filter(u => 
+                        now - new Date(u.timestamp).getTime() <= ranges[timeRange]
+                    );
+
+                    const byKey = {};
+                    const byModel = {};
+                    const byEndpoint = { chat: 0, generate: 0 };
+                    const byDay = {};
+
+                    filteredUsage.forEach(u => {
+                        byKey[u.keyName] = (byKey[u.keyName] || 0) + 1;
+                        byModel[u.model] = (byModel[u.model] || 0) + 1;
+                        
+                        if (u.endpoint === '/api/ai/chat') byEndpoint.chat++;
+                        else byEndpoint.generate++;
+
+                        const day = new Date(u.timestamp).toLocaleDateString('fr-FR');
+                        byDay[day] = (byDay[day] || 0) + 1;
+                    });
+
+                    setStats({
+                        total: filteredUsage.length,
+                        byKey,
+                        byModel,
+                        byEndpoint,
+                        byDay,
+                        keys: keys.length
+                    });
+                }
+
+                setLoading(false);
+            }, [timeRange]);
+
+            useEffect(() => { loadStats(); }, [loadStats]);
+
+            if (loading) {
+                return (
+                    <div className="flex items-center justify-center h-64">
+                        <Icon name="loader-2" size={32} className="animate-spin text-gray-400" />
+                    </div>
+                );
+            }
+
+            const topKeys = Object.entries(stats.byKey || {})
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5);
+
+            const topModels = Object.entries(stats.byModel || {})
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5);
+
+            const dayEntries = Object.entries(stats.byDay || {})
+                .sort((a, b) => new Date(a[0]) - new Date(b[0]))
+                .slice(-7);
+
+            return (
+                <div className="fade-in">
+                    <div className="flex items-center justify-between mb-6">
+                        <div>
+                            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center shadow-lg">
+                                    <Icon name="bar-chart-2" size={20} className="text-white" />
+                                </div>
+                                Statistiques IA
+                            </h1>
+                            <p className="text-gray-600 mt-2 ml-13">Analyse détaillée de l'utilisation des modèles IA</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <select
+                                value={timeRange}
+                                onChange={(e) => setTimeRange(e.target.value)}
+                                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/10 text-sm"
+                            >
+                                <option value="24h">Dernières 24h</option>
+                                <option value="7d">7 derniers jours</option>
+                                <option value="30d">30 derniers jours</option>
+                                <option value="all">Tout</option>
+                            </select>
+                            <button onClick={loadStats} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 transition-colors text-sm">
+                                <Icon name="refresh-cw" size={15} /> Rafraîchir
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Overview Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white shadow-lg">
+                            <div className="flex items-center justify-between mb-2">
+                                <Icon name="zap" size={24} />
+                                <span className="text-2xl font-bold">{stats.total}</span>
+                            </div>
+                            <p className="text-sm text-blue-100">Requêtes totales</p>
+                        </div>
+                        <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 text-white shadow-lg">
+                            <div className="flex items-center justify-between mb-2">
+                                <Icon name="key" size={24} />
+                                <span className="text-2xl font-bold">{stats.keys}</span>
+                            </div>
+                            <p className="text-sm text-green-100">Clés API actives</p>
+                        </div>
+                        <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white shadow-lg">
+                            <div className="flex items-center justify-between mb-2">
+                                <Icon name="message-square" size={24} />
+                                <span className="text-2xl font-bold">{stats.byEndpoint.chat}</span>
+                            </div>
+                            <p className="text-sm text-purple-100">Requêtes Chat</p>
+                        </div>
+                        <div className="bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl p-6 text-white shadow-lg">
+                            <div className="flex items-center justify-between mb-2">
+                                <Icon name="cpu" size={24} />
+                                <span className="text-2xl font-bold">{stats.byEndpoint.generate}</span>
+                            </div>
+                            <p className="text-sm text-amber-100">Requêtes Generate</p>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                        {/* Top Keys */}
+                        <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                <Icon name="key" size={20} className="text-primary-600" />
+                                Top 5 Clés API
+                            </h3>
+                            {topKeys.length === 0 ? (
+                                <p className="text-gray-500 text-sm">Aucune donnée</p>
+                            ) : (
+                                <div className="space-y-3">
+                                    {topKeys.map(([name, count], i) => {
+                                        const maxCount = topKeys[0][1];
+                                        const percentage = (count / maxCount) * 100;
+                                        return (
+                                            <div key={i}>
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <span className="text-sm font-medium text-gray-900">{name}</span>
+                                                    <span className="text-sm font-bold text-primary-600">{count}</span>
+                                                </div>
+                                                <div className="w-full bg-gray-200 rounded-full h-2">
+                                                    <div 
+                                                        className="bg-gradient-to-r from-primary-500 to-primary-600 h-2 rounded-full transition-all"
+                                                        style={{ width: `${percentage}%` }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Top Models */}
+                        <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                <Icon name="brain" size={20} className="text-primary-600" />
+                                Top 5 Modèles
+                            </h3>
+                            {topModels.length === 0 ? (
+                                <p className="text-gray-500 text-sm">Aucune donnée</p>
+                            ) : (
+                                <div className="space-y-3">
+                                    {topModels.map(([name, count], i) => {
+                                        const maxCount = topModels[0][1];
+                                        const percentage = (count / maxCount) * 100;
+                                        return (
+                                            <div key={i}>
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <span className="text-sm font-medium text-gray-900">{name}</span>
+                                                    <span className="text-sm font-bold text-primary-600">{count}</span>
+                                                </div>
+                                                <div className="w-full bg-gray-200 rounded-full h-2">
+                                                    <div 
+                                                        className="bg-gradient-to-r from-green-500 to-green-600 h-2 rounded-full transition-all"
+                                                        style={{ width: `${percentage}%` }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Timeline */}
+                    <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                        <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                            <Icon name="calendar" size={20} className="text-primary-600" />
+                            Activité quotidienne
+                        </h3>
+                        {dayEntries.length === 0 ? (
+                            <p className="text-gray-500 text-sm">Aucune donnée</p>
+                        ) : (
+                            <div className="space-y-3">
+                                {dayEntries.map(([day, count], i) => {
+                                    const maxCount = Math.max(...dayEntries.map(e => e[1]));
+                                    const percentage = (count / maxCount) * 100;
+                                    return (
+                                        <div key={i}>
+                                            <div className="flex items-center justify-between mb-1">
+                                                <span className="text-sm font-medium text-gray-900">{day}</span>
+                                                <span className="text-sm font-bold text-primary-600">{count} requête{count > 1 ? 's' : ''}</span>
+                                            </div>
+                                            <div className="w-full bg-gray-200 rounded-full h-2">
+                                                <div 
+                                                    className="bg-gradient-to-r from-blue-500 to-blue-600 h-2 rounded-full transition-all"
+                                                    style={{ width: `${percentage}%` }}
+                                                />
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // ============================================
         // PM2 Status Page
         // ============================================
         function PM2StatusPage({ showToast }) {
@@ -5300,6 +5741,12 @@
                     case 'ai-models':
                         if (!isAdmin) return <DashboardPage projects={visibleProjects} onNavigate={navigate} onRefresh={loadProjects} showToast={showToast} currentUser={currentUser} />;
                         return <AIModelsPage showToast={showToast} />;
+                    case 'ai-chat':
+                        if (!isAdmin) return <DashboardPage projects={visibleProjects} onNavigate={navigate} onRefresh={loadProjects} showToast={showToast} currentUser={currentUser} />;
+                        return <AIChatPage showToast={showToast} />;
+                    case 'ai-stats':
+                        if (!isAdmin) return <DashboardPage projects={visibleProjects} onNavigate={navigate} onRefresh={loadProjects} showToast={showToast} currentUser={currentUser} />;
+                        return <AIStatsPage showToast={showToast} />;
                     case 'api-keys':
                         return <APIKeysPage showToast={showToast} currentUser={currentUser} allProjects={allProjects} onNavigate={navigate} />;
                     case 'api-key-detail':

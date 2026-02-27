@@ -17,12 +17,28 @@ Twoine intègre maintenant **Ollama** pour fournir des capacités d'intelligence
 - Associer des clés à plusieurs projets
 - Monitorer l'utilisation en temps réel
 - Révoquer ou régénérer des clés
+- Page dédiée par clé avec historique détaillé des requêtes
+- Visualisation JSON formatée des requêtes/réponses
+
+✅ **Interface de Chat IA** (Admin uniquement)
+- Tester les modèles directement depuis l'admin
+- Sélection du modèle en temps réel
+- Historique de conversation
+- Interface moderne et intuitive
+
+✅ **Statistiques d'utilisation avancées** (Admin uniquement)
+- Analyse par période (24h, 7j, 30j, tout)
+- Top 5 clés API les plus utilisées
+- Top 5 modèles les plus sollicités
+- Graphiques d'activité quotidienne
+- Répartition Chat vs Generate
 
 ✅ **API Proxy sécurisée**
 - Authentification par clé API
 - Rate limiting (requêtes/minute)
 - Support du streaming
 - Compatible OpenAI format
+- Enregistrement complet des requêtes/réponses
 
 ---
 
@@ -423,8 +439,8 @@ async function streamChat(question) {
 ## Roadmap
 
 - [ ] Support de l'embeddings pour RAG
-- [ ] Interface de chat intégrée dans l'admin
-- [ ] Statistiques d'utilisation avancées
+- [x] Interface de chat intégrée dans l'admin
+- [x] Statistiques d'utilisation avancées
 - [ ] Support multi-modèles par clé
 - [ ] Webhooks pour les événements
 - [ ] Quotas mensuels
