@@ -222,8 +222,6 @@
                 { id: 'api-keys', icon: 'key', label: 'Clés API' },
                 ...(isAdmin ? [
                     { id: 'ai-models', icon: 'brain', label: 'Modèles IA' },
-                    { id: 'ai-chat', icon: 'message-square', label: 'Chat IA' },
-                    { id: 'ai-stats', icon: 'bar-chart-2', label: 'Statistiques IA' },
                     { id: 'users', icon: 'users', label: 'Utilisateurs' },
                     { id: 'pm2', icon: 'activity', label: 'Statut PM2' },
                 ] : []),
@@ -3857,6 +3855,13 @@
             const [showInstallModal, setShowInstallModal] = useState(false);
             const [installing, setInstalling] = useState(null);
             const [ollamaRunning, setOllamaRunning] = useState(true);
+            const [stats, setStats] = useState(null);
+            const [showChatModal, setShowChatModal] = useState(false);
+            const [selectedModelForChat, setSelectedModelForChat] = useState(null);
+            const [chatMessages, setChatMessages] = useState([]);
+            const [chatInput, setChatInput] = useState('');
+            const [chatLoading, setChatLoading] = useState(false);
+            const messagesEndRef = useRef(null);
 
             const loadModels = useCallback(async () => {
                 setLoading(true);
@@ -3875,7 +3880,94 @@
                 if (result.success) setAvailableModels(result.data);
             }, []);
 
-            useEffect(() => { loadModels(); }, [loadModels]);
+            const loadStats = useCallback(async () => {
+                const keysResult = await api.get('/api/api-keys');
+                
+                if (keysResult.success) {
+                    const keys = keysResult.data;
+                    const allUsage = [];
+                    
+                    for (const key of keys) {
+                        const result = await api.get(`/api/api-keys/${key.id}/usage?limit=10000`);
+                        if (result.success) {
+                            allUsage.push(...result.data.map(u => ({ ...u, keyName: key.name })));
+                        }
+                    }
+
+                    const byModel = {};
+                    const byEndpoint = { chat: 0, generate: 0 };
+
+                    allUsage.forEach(u => {
+                        byModel[u.model] = (byModel[u.model] || 0) + 1;
+                        if (u.endpoint === '/api/ai/chat') byEndpoint.chat++;
+                        else byEndpoint.generate++;
+                    });
+
+                    setStats({
+                        total: allUsage.length,
+                        byModel,
+                        byEndpoint,
+                        keys: keys.length
+                    });
+                }
+            }, []);
+
+            useEffect(() => { 
+                loadModels(); 
+                loadStats();
+            }, [loadModels, loadStats]);
+
+            useEffect(() => {
+                if (showChatModal) {
+                    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                }
+            }, [chatMessages, showChatModal]);
+
+            function openChatModal(model) {
+                setSelectedModelForChat(model);
+                setChatMessages([]);
+                setChatInput('');
+                setShowChatModal(true);
+            }
+
+            async function sendChatMessage() {
+                if (!chatInput.trim() || !selectedModelForChat || chatLoading) return;
+
+                const userMessage = { role: 'user', content: chatInput.trim() };
+                setChatMessages(prev => [...prev, userMessage]);
+                setChatInput('');
+                setChatLoading(true);
+
+                try {
+                    const response = await fetch('http://localhost:11434/api/chat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            model: selectedModelForChat.name,
+                            messages: [...chatMessages, userMessage],
+                            stream: false
+                        })
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        setChatMessages(prev => [...prev, data.message]);
+                    } else {
+                        showToast('Erreur lors de l\'envoi du message', 'error');
+                    }
+                } catch (error) {
+                    showToast('Erreur de connexion à Ollama', 'error');
+                }
+
+                setChatLoading(false);
+            }
+
+            function handleChatKeyPress(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendChatMessage();
+                }
+            }
 
             async function handleInstall(modelName) {
                 setInstalling(modelName);
@@ -3913,10 +4005,10 @@
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sm:mb-8">
                         <div>
                             <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Modèles IA</h1>
-                            <p className="text-sm sm:text-base text-gray-600 mt-1">Gérez vos modèles Ollama</p>
+                            <p className="text-sm sm:text-base text-gray-600 mt-1">Gérez vos modèles Ollama et testez-les</p>
                         </div>
                         <div className="flex gap-2">
-                            <button onClick={() => { setLoading(true); loadModels(); }} className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 transition-colors text-sm">
+                            <button onClick={() => { setLoading(true); loadModels(); loadStats(); }} className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 transition-colors text-sm">
                                 <Icon name="refresh-cw" size={15} /> Rafraîchir
                             </button>
                             <button onClick={openInstallModal} className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition-colors text-sm font-medium">
@@ -3924,6 +4016,40 @@
                             </button>
                         </div>
                     </div>
+
+                    {/* Statistics Cards */}
+                    {stats && (
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                            <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white shadow-lg">
+                                <div className="flex items-center justify-between mb-2">
+                                    <Icon name="zap" size={24} />
+                                    <span className="text-2xl font-bold">{stats.total}</span>
+                                </div>
+                                <p className="text-sm text-blue-100">Requêtes totales</p>
+                            </div>
+                            <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 text-white shadow-lg">
+                                <div className="flex items-center justify-between mb-2">
+                                    <Icon name="key" size={24} />
+                                    <span className="text-2xl font-bold">{stats.keys}</span>
+                                </div>
+                                <p className="text-sm text-green-100">Clés API actives</p>
+                            </div>
+                            <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white shadow-lg">
+                                <div className="flex items-center justify-between mb-2">
+                                    <Icon name="message-square" size={24} />
+                                    <span className="text-2xl font-bold">{stats.byEndpoint.chat}</span>
+                                </div>
+                                <p className="text-sm text-purple-100">Requêtes Chat</p>
+                            </div>
+                            <div className="bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl p-6 text-white shadow-lg">
+                                <div className="flex items-center justify-between mb-2">
+                                    <Icon name="cpu" size={24} />
+                                    <span className="text-2xl font-bold">{stats.byEndpoint.generate}</span>
+                                </div>
+                                <p className="text-sm text-amber-100">Requêtes Generate</p>
+                            </div>
+                        </div>
+                    )}
 
                     {!ollamaRunning && (
                         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-6 flex items-start gap-3">
@@ -3969,13 +4095,23 @@
                                                 </div>
                                             </div>
                                         </div>
-                                        <button 
-                                            onClick={() => handleDelete(model.name)}
-                                            className="p-2 rounded-lg hover:bg-red-50 text-red-600 transition-colors shrink-0"
-                                            title="Supprimer"
-                                        >
-                                            <Icon name="trash-2" size={16} />
-                                        </button>
+                                        <div className="flex gap-2 shrink-0">
+                                            <button 
+                                                onClick={() => openChatModal(model)}
+                                                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary-50 hover:bg-primary-100 text-primary-700 transition-colors text-sm font-medium"
+                                                title="Tester ce modèle"
+                                            >
+                                                <Icon name="message-square" size={16} />
+                                                Tester
+                                            </button>
+                                            <button 
+                                                onClick={() => handleDelete(model.name)}
+                                                className="p-2 rounded-lg hover:bg-red-50 text-red-600 transition-colors"
+                                                title="Supprimer"
+                                            >
+                                                <Icon name="trash-2" size={16} />
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             ))}
@@ -4023,6 +4159,96 @@
                                             ))}
                                         </div>
                                     )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Chat Modal */}
+                    {showChatModal && selectedModelForChat && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowChatModal(false)}>
+                            <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                                <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-primary-50 to-primary-100">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 bg-primary-600 rounded-lg flex items-center justify-center">
+                                            <Icon name="message-square" size={20} className="text-white" />
+                                        </div>
+                                        <div>
+                                            <h2 className="text-lg font-bold text-gray-900">Test du modèle</h2>
+                                            <p className="text-xs text-gray-600">{selectedModelForChat.name}</p>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setShowChatModal(false)} className="p-2 rounded-lg hover:bg-primary-200 text-gray-700 transition-colors">
+                                        <Icon name="x" size={20} />
+                                    </button>
+                                </div>
+                                
+                                {/* Messages */}
+                                <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                                    {chatMessages.length === 0 ? (
+                                        <div className="flex items-center justify-center h-full">
+                                            <div className="text-center">
+                                                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-primary-100 to-primary-200 flex items-center justify-center mx-auto mb-4">
+                                                    <Icon name="message-square" size={32} className="text-primary-600" />
+                                                </div>
+                                                <h3 className="text-lg font-semibold text-gray-900 mb-2">Commencez une conversation</h3>
+                                                <p className="text-sm text-gray-500">Posez une question au modèle {selectedModelForChat.name}</p>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        chatMessages.map((msg, i) => (
+                                            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                                <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${
+                                                    msg.role === 'user'
+                                                        ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white'
+                                                        : 'bg-gray-100 text-gray-900'
+                                                }`}>
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <Icon 
+                                                            name={msg.role === 'user' ? 'user' : 'bot'} 
+                                                            size={14} 
+                                                            className={msg.role === 'user' ? 'text-white' : 'text-gray-600'}
+                                                        />
+                                                        <span className={`text-xs font-medium ${msg.role === 'user' ? 'text-white/80' : 'text-gray-600'}`}>
+                                                            {msg.role === 'user' ? 'Vous' : selectedModelForChat.name}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                    {chatLoading && (
+                                        <div className="flex justify-start">
+                                            <div className="bg-gray-100 rounded-2xl px-4 py-3">
+                                                <Icon name="loader-2" size={16} className="animate-spin text-gray-600" />
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div ref={messagesEndRef} />
+                                </div>
+
+                                {/* Input */}
+                                <div className="border-t border-gray-200 p-4">
+                                    <div className="flex gap-3">
+                                        <textarea
+                                            value={chatInput}
+                                            onChange={(e) => setChatInput(e.target.value)}
+                                            onKeyPress={handleChatKeyPress}
+                                            placeholder="Écrivez votre message... (Entrée pour envoyer)"
+                                            disabled={chatLoading}
+                                            rows={1}
+                                            className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/10 resize-none disabled:opacity-50"
+                                        />
+                                        <button
+                                            onClick={sendChatMessage}
+                                            disabled={!chatInput.trim() || chatLoading}
+                                            className="px-6 py-3 rounded-xl bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800 text-white font-medium transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                        >
+                                            <Icon name="send" size={18} />
+                                            Envoyer
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -5741,12 +5967,6 @@
                     case 'ai-models':
                         if (!isAdmin) return <DashboardPage projects={visibleProjects} onNavigate={navigate} onRefresh={loadProjects} showToast={showToast} currentUser={currentUser} />;
                         return <AIModelsPage showToast={showToast} />;
-                    case 'ai-chat':
-                        if (!isAdmin) return <DashboardPage projects={visibleProjects} onNavigate={navigate} onRefresh={loadProjects} showToast={showToast} currentUser={currentUser} />;
-                        return <AIChatPage showToast={showToast} />;
-                    case 'ai-stats':
-                        if (!isAdmin) return <DashboardPage projects={visibleProjects} onNavigate={navigate} onRefresh={loadProjects} showToast={showToast} currentUser={currentUser} />;
-                        return <AIStatsPage showToast={showToast} />;
                     case 'api-keys':
                         return <APIKeysPage showToast={showToast} currentUser={currentUser} allProjects={allProjects} onNavigate={navigate} />;
                     case 'api-key-detail':
