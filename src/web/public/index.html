@@ -4032,7 +4032,7 @@
         // ============================================
         // API Keys Page
         // ============================================
-        function APIKeysPage({ showToast, currentUser, allProjects }) {
+        function APIKeysPage({ showToast, currentUser, allProjects, onNavigate }) {
             const [apiKeys, setApiKeys] = useState([]);
             const [loading, setLoading] = useState(true);
             const [showCreateModal, setShowCreateModal] = useState(false);
