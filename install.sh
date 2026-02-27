@@ -27,7 +27,7 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-echo -e "${CYAN}[1/11]${NC} Vérification du système..."
+echo -e "${CYAN}[1/12]${NC} Vérification du système..."
 
 # Vérifier Ubuntu
 if [ -f /etc/os-release ]; then
@@ -47,18 +47,18 @@ fi
 echo -e "${GREEN}✔ Système vérifié${NC}"
 
 # Mise à jour des paquets
-echo -e "${CYAN}[2/11]${NC} Mise à jour des paquets système..."
+echo -e "${CYAN}[2/12]${NC} Mise à jour des paquets système..."
 apt-get update -y
 apt-get upgrade -y
 echo -e "${GREEN}✔ Paquets système mis à jour${NC}"
 
 # Installation des dépendances système
-echo -e "${CYAN}[3/11]${NC} Installation des dépendances système..."
+echo -e "${CYAN}[3/12]${NC} Installation des dépendances système..."
 apt-get install -y curl wget gnupg2 ca-certificates lsb-release apt-transport-https software-properties-common build-essential git
 echo -e "${GREEN}✔ Dépendances système installées${NC}"
 
 # Vérifier/Installer Node.js
-echo -e "${CYAN}[4/11]${NC} Installation de Node.js..."
+echo -e "${CYAN}[4/12]${NC} Installation de Node.js..."
 
 if command -v node &> /dev/null; then
     NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
@@ -79,7 +79,7 @@ fi
 echo -e "${GREEN}✔ Node.js $(node --version) installé${NC}"
 
 # Vérifier/Installer Python
-echo -e "${CYAN}[5/11]${NC} Installation de Python..."
+echo -e "${CYAN}[5/12]${NC} Installation de Python..."
 
 if command -v python3 &> /dev/null; then
     echo -e "${GREEN}✔ Python $(python3 --version) détecté${NC}"
@@ -91,7 +91,7 @@ fi
 echo -e "${GREEN}✔ Python $(python3 --version) installé${NC}"
 
 # Vérifier/Installer PHP
-echo -e "${CYAN}[6/11]${NC} Installation de PHP..."
+echo -e "${CYAN}[6/12]${NC} Installation de PHP..."
 
 if command -v php &> /dev/null; then
     echo -e "${GREEN}✔ PHP $(php --version | head -n 1) détecté${NC}"
@@ -103,7 +103,7 @@ fi
 echo -e "${GREEN}✔ PHP $(php --version | head -n 1 | cut -d' ' -f2) installé${NC}"
 
 # Vérifier/Installer MongoDB
-echo -e "${CYAN}[7/11]${NC} Installation de MongoDB..."
+echo -e "${CYAN}[7/12]${NC} Installation de MongoDB..."
 
 if command -v mongod &> /dev/null; then
     echo -e "${GREEN}✔ MongoDB $(mongod --version | grep 'db version' | cut -d' ' -f3) détecté${NC}"
@@ -120,7 +120,7 @@ fi
 echo -e "${GREEN}✔ MongoDB installé et démarré${NC}"
 
 # Vérifier/Installer PostgreSQL
-echo -e "${CYAN}[8/11]${NC} Installation de PostgreSQL..."
+echo -e "${CYAN}[8/12]${NC} Installation de PostgreSQL..."
 
 if command -v psql &> /dev/null; then
     echo -e "${GREEN}✔ PostgreSQL $(psql --version | cut -d' ' -f3) détecté${NC}"
@@ -137,7 +137,7 @@ fi
 echo -e "${GREEN}✔ PostgreSQL installé et démarré${NC}"
 
 # Vérifier/Installer PM2
-echo -e "${CYAN}[9/11]${NC} Installation de PM2..."
+echo -e "${CYAN}[9/12]${NC} Installation de PM2..."
 
 if command -v pm2 &> /dev/null; then
     echo -e "${GREEN}✔ PM2 $(pm2 --version) détecté${NC}"
@@ -147,8 +147,33 @@ else
     echo -e "${GREEN}✔ PM2 installé${NC}"
 fi
 
+# Vérifier/Installer Ollama
+echo -e "${CYAN}[10/12]${NC} Installation d'Ollama..."
+
+if command -v ollama &> /dev/null; then
+    echo -e "${GREEN}✔ Ollama $(ollama --version) détecté${NC}"
+else
+    echo "Installation d'Ollama..."
+    curl -fsSL https://ollama.com/install.sh | sh
+    echo -e "${GREEN}✔ Ollama installé${NC}"
+fi
+
+# Démarrer le service Ollama
+systemctl enable ollama 2>/dev/null || true
+systemctl start ollama 2>/dev/null || true
+
+# Attendre que Ollama soit prêt
+echo "Attente du démarrage d'Ollama..."
+sleep 5
+
+# Installer le modèle llama3.2
+echo "Installation du modèle llama3.2..."
+ollama pull llama3.2 || echo -e "${YELLOW}⚠ Impossible d'installer llama3.2 automatiquement. Vous pourrez l'installer plus tard via l'interface admin.${NC}"
+
+echo -e "${GREEN}✔ Ollama configuré${NC}"
+
 # Copier les fichiers
-echo -e "${CYAN}[10/11]${NC} Installation de l'outil..."
+echo -e "${CYAN}[11/12]${NC} Installation de l'outil..."
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
@@ -171,7 +196,7 @@ npm install --production
 echo -e "${GREEN}✔ Dépendances Node.js installées${NC}"
 
 # Créer le lien symbolique
-echo -e "${CYAN}[11/11]${NC} Configuration finale..."
+echo -e "${CYAN}[12/12]${NC} Configuration finale..."
 
 chmod +x "$INSTALL_DIR/src/index.js"
 
@@ -208,6 +233,7 @@ echo -e "  • PHP: $(php --version 2>&1 | head -n 1 | cut -d' ' -f2)"
 echo -e "  • MongoDB: $(systemctl is-active mongod)"
 echo -e "  • PostgreSQL: $(systemctl is-active postgresql)"
 echo -e "  • PM2: $(pm2 --version)"
+echo -e "  • Ollama: $(systemctl is-active ollama 2>/dev/null || echo 'installé')"
 echo ""
 echo -e "${CYAN}Pour lancer l'outil:${NC}"
 echo -e "  ${YELLOW}sudo project-manager${NC}"

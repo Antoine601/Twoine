@@ -12,8 +12,12 @@ import logger from '../utils/logger.js';
 import users from '../modules/users.js';
 import fileManager from '../modules/fileManager.js';
 import databases from '../modules/databases.js';
+import aiModels from '../modules/aiModels.js';
+import apiKeys from '../modules/apiKeys.js';
 import multer from 'multer';
 import path from 'path';
+import https from 'https';
+import http from 'http';
 
 const router = Router();
 const upload = multer({ dest: '/tmp/uploads/' });
@@ -1229,6 +1233,392 @@ router.post('/databases/:id/import-bson', upload.single('bsonFile'), async (req,
             } catch {}
         }
         res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// MODÈLES IA (ADMIN UNIQUEMENT)
+// ============================================
+
+/**
+ * GET /api/admin/ai-models - Liste les modèles IA installés
+ */
+router.get('/admin/ai-models', async (req, res) => {
+    try {
+        const models = await aiModels.listInstalledModels();
+        res.json({ success: true, data: models });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/admin/ai-models/available - Liste les modèles disponibles
+ */
+router.get('/admin/ai-models/available', async (req, res) => {
+    try {
+        const models = await aiModels.getAvailableModels();
+        res.json({ success: true, data: models });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/admin/ai-models/status - Vérifie le statut d'Ollama
+ */
+router.get('/admin/ai-models/status', async (req, res) => {
+    try {
+        const isRunning = await aiModels.checkOllamaStatus();
+        res.json({ success: true, data: { running: isRunning } });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/admin/ai-models/:modelName - Détails d'un modèle
+ */
+router.get('/admin/ai-models/:modelName', async (req, res) => {
+    try {
+        const details = await aiModels.getModelDetails(req.params.modelName);
+        res.json({ success: true, data: details });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/admin/ai-models/install - Installer un modèle
+ */
+router.post('/admin/ai-models/install', async (req, res) => {
+    try {
+        const { modelName } = req.body;
+        if (!modelName) {
+            return res.status(400).json({ success: false, error: 'Nom du modèle requis' });
+        }
+
+        const result = await aiModels.installModel(modelName);
+        res.json({ success: true, data: result });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * DELETE /api/admin/ai-models/:modelName - Supprimer un modèle
+ */
+router.delete('/admin/ai-models/:modelName', async (req, res) => {
+    try {
+        const result = await aiModels.deleteModel(req.params.modelName);
+        res.json({ success: true, data: result });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// CLÉS API
+// ============================================
+
+/**
+ * GET /api/api-keys - Liste les clés API
+ * Admin: toutes les clés
+ * User: seulement les clés de leurs projets
+ */
+router.get('/api-keys', async (req, res) => {
+    try {
+        const { projectName } = req.query;
+        const keys = apiKeys.getAllApiKeys(projectName || null);
+        
+        // Masquer la valeur complète de la clé (sauf les 8 derniers caractères)
+        const sanitizedKeys = keys.map(key => ({
+            ...key,
+            key: `${key.key.substring(0, 8)}...${key.key.substring(key.key.length - 8)}`
+        }));
+        
+        res.json({ success: true, data: sanitizedKeys });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/api-keys/:id - Détails d'une clé API
+ */
+router.get('/api-keys/:id', async (req, res) => {
+    try {
+        const key = apiKeys.getApiKeyById(req.params.id);
+        if (!key) {
+            return res.status(404).json({ success: false, error: 'Clé API non trouvée' });
+        }
+
+        // Masquer la valeur complète de la clé
+        const sanitizedKey = {
+            ...key,
+            key: `${key.key.substring(0, 8)}...${key.key.substring(key.key.length - 8)}`
+        };
+
+        res.json({ success: true, data: sanitizedKey });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/api-keys - Créer une clé API
+ */
+router.post('/api-keys', async (req, res) => {
+    try {
+        const { name, modelName, projects, requestsPerMinute, createdBy } = req.body;
+        
+        if (!name || !modelName) {
+            return res.status(400).json({ success: false, error: 'Nom et modèle requis' });
+        }
+
+        const key = apiKeys.createApiKey({
+            name,
+            modelName,
+            projects: projects || [],
+            requestsPerMinute: requestsPerMinute || 10,
+            createdBy: createdBy || 'admin'
+        });
+
+        res.json({ success: true, data: key });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * PUT /api/api-keys/:id - Mettre à jour une clé API
+ */
+router.put('/api-keys/:id', async (req, res) => {
+    try {
+        const updates = req.body;
+        const updated = apiKeys.updateApiKey(req.params.id, updates);
+
+        // Masquer la valeur complète de la clé
+        const sanitizedKey = {
+            ...updated,
+            key: `${updated.key.substring(0, 8)}...${updated.key.substring(updated.key.length - 8)}`
+        };
+
+        res.json({ success: true, data: sanitizedKey });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * DELETE /api/api-keys/:id - Supprimer une clé API
+ */
+router.delete('/api-keys/:id', async (req, res) => {
+    try {
+        apiKeys.deleteApiKey(req.params.id);
+        res.json({ success: true, message: 'Clé API supprimée' });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/api-keys/:id/regenerate - Régénérer une clé API
+ */
+router.post('/api-keys/:id/regenerate', async (req, res) => {
+    try {
+        const key = apiKeys.regenerateApiKey(req.params.id);
+        res.json({ success: true, data: key });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/api-keys/:id/usage - Historique d'utilisation
+ */
+router.get('/api-keys/:id/usage', async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 100;
+        const usage = apiKeys.getUsageHistory(req.params.id, limit);
+        res.json({ success: true, data: usage });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// PROXY IA (AUTHENTIFICATION PAR CLÉ API)
+// ============================================
+
+/**
+ * POST /api/ai/chat - Proxy vers Ollama avec authentification
+ */
+router.post('/ai/chat', async (req, res) => {
+    try {
+        const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
+        
+        if (!apiKey) {
+            return res.status(401).json({ success: false, error: 'Clé API requise' });
+        }
+
+        const keyData = apiKeys.getApiKeyByValue(apiKey);
+        
+        if (!keyData) {
+            return res.status(401).json({ success: false, error: 'Clé API invalide' });
+        }
+
+        if (keyData.status !== 'active') {
+            return res.status(403).json({ success: false, error: 'Clé API désactivée' });
+        }
+
+        // Vérifier le rate limit
+        if (!apiKeys.checkRateLimit(apiKey)) {
+            return res.status(429).json({ 
+                success: false, 
+                error: `Limite de ${keyData.limits.requestsPerMinute} requêtes par minute atteinte` 
+            });
+        }
+
+        const { messages, stream } = req.body;
+
+        if (!messages || !Array.isArray(messages)) {
+            return res.status(400).json({ success: false, error: 'Messages requis' });
+        }
+
+        // Préparer la requête pour Ollama
+        const ollamaRequest = {
+            model: keyData.modelName,
+            messages: messages,
+            stream: stream || false
+        };
+
+        // Enregistrer l'utilisation
+        apiKeys.recordUsage(apiKey, {
+            endpoint: '/api/ai/chat',
+            model: keyData.modelName,
+            messagesCount: messages.length
+        });
+
+        // Proxy vers Ollama
+        const ollamaOptions = {
+            hostname: 'localhost',
+            port: 11434,
+            path: '/api/chat',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        };
+
+        const proxyReq = http.request(ollamaOptions, (proxyRes) => {
+            res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'application/json');
+            proxyRes.pipe(res);
+        });
+
+        proxyReq.on('error', (error) => {
+            logger.error(`Erreur proxy Ollama: ${error.message}`);
+            res.status(500).json({ success: false, error: 'Erreur de communication avec Ollama' });
+        });
+
+        proxyReq.write(JSON.stringify(ollamaRequest));
+        proxyReq.end();
+
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/ai/generate - Génération de texte simple
+ */
+router.post('/ai/generate', async (req, res) => {
+    try {
+        const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
+        
+        if (!apiKey) {
+            return res.status(401).json({ success: false, error: 'Clé API requise' });
+        }
+
+        const keyData = apiKeys.getApiKeyByValue(apiKey);
+        
+        if (!keyData) {
+            return res.status(401).json({ success: false, error: 'Clé API invalide' });
+        }
+
+        if (keyData.status !== 'active') {
+            return res.status(403).json({ success: false, error: 'Clé API désactivée' });
+        }
+
+        // Vérifier le rate limit
+        if (!apiKeys.checkRateLimit(apiKey)) {
+            return res.status(429).json({ 
+                success: false, 
+                error: `Limite de ${keyData.limits.requestsPerMinute} requêtes par minute atteinte` 
+            });
+        }
+
+        const { prompt, stream } = req.body;
+
+        if (!prompt) {
+            return res.status(400).json({ success: false, error: 'Prompt requis' });
+        }
+
+        // Préparer la requête pour Ollama
+        const ollamaRequest = {
+            model: keyData.modelName,
+            prompt: prompt,
+            stream: stream || false
+        };
+
+        // Enregistrer l'utilisation
+        apiKeys.recordUsage(apiKey, {
+            endpoint: '/api/ai/generate',
+            model: keyData.modelName,
+            promptLength: prompt.length
+        });
+
+        // Proxy vers Ollama
+        const ollamaOptions = {
+            hostname: 'localhost',
+            port: 11434,
+            path: '/api/generate',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        };
+
+        const proxyReq = http.request(ollamaOptions, (proxyRes) => {
+            res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'application/json');
+            proxyRes.pipe(res);
+        });
+
+        proxyReq.on('error', (error) => {
+            logger.error(`Erreur proxy Ollama: ${error.message}`);
+            res.status(500).json({ success: false, error: 'Erreur de communication avec Ollama' });
+        });
+
+        proxyReq.write(JSON.stringify(ollamaRequest));
+        proxyReq.end();
+
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 

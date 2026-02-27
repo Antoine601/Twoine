@@ -219,7 +219,9 @@
                 { id: 'dashboard', icon: 'layout-dashboard', label: 'Tableau de bord' },
                 { id: 'projects', icon: 'folder-open', label: 'Projets' },
                 { id: 'databases', icon: 'database', label: 'Bases de données' },
+                { id: 'api-keys', icon: 'key', label: 'Clés API' },
                 ...(isAdmin ? [
+                    { id: 'ai-models', icon: 'brain', label: 'Modèles IA' },
                     { id: 'users', icon: 'users', label: 'Utilisateurs' },
                     { id: 'pm2', icon: 'activity', label: 'Statut PM2' },
                 ] : []),
@@ -3844,6 +3846,621 @@
         }
 
         // ============================================
+        // AI Models Page (Admin only)
+        // ============================================
+        function AIModelsPage({ showToast }) {
+            const [models, setModels] = useState([]);
+            const [availableModels, setAvailableModels] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [showInstallModal, setShowInstallModal] = useState(false);
+            const [installing, setInstalling] = useState(null);
+            const [ollamaRunning, setOllamaRunning] = useState(true);
+
+            const loadModels = useCallback(async () => {
+                setLoading(true);
+                const [statusResult, modelsResult] = await Promise.all([
+                    api.get('/api/admin/ai-models/status'),
+                    api.get('/api/admin/ai-models')
+                ]);
+                
+                if (statusResult.success) setOllamaRunning(statusResult.data.running);
+                if (modelsResult.success) setModels(modelsResult.data);
+                setLoading(false);
+            }, []);
+
+            const loadAvailableModels = useCallback(async () => {
+                const result = await api.get('/api/admin/ai-models/available');
+                if (result.success) setAvailableModels(result.data);
+            }, []);
+
+            useEffect(() => { loadModels(); }, [loadModels]);
+
+            async function handleInstall(modelName) {
+                setInstalling(modelName);
+                const result = await api.post('/api/admin/ai-models/install', { modelName });
+                setInstalling(null);
+                
+                if (result.success) {
+                    showToast(`Installation de ${modelName} démarrée`, 'success');
+                    setShowInstallModal(false);
+                    setTimeout(() => loadModels(), 2000);
+                } else {
+                    showToast(result.error, 'error');
+                }
+            }
+
+            async function handleDelete(modelName) {
+                if (!confirm(`Supprimer le modèle ${modelName} ?`)) return;
+                
+                const result = await api.del(`/api/admin/ai-models/${encodeURIComponent(modelName)}`);
+                if (result.success) {
+                    showToast(`Modèle ${modelName} supprimé`, 'success');
+                    loadModels();
+                } else {
+                    showToast(result.error, 'error');
+                }
+            }
+
+            function openInstallModal() {
+                setShowInstallModal(true);
+                loadAvailableModels();
+            }
+
+            return (
+                <div className="fade-in">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sm:mb-8">
+                        <div>
+                            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Modèles IA</h1>
+                            <p className="text-sm sm:text-base text-gray-600 mt-1">Gérez vos modèles Ollama</p>
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={() => { setLoading(true); loadModels(); }} className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 transition-colors text-sm">
+                                <Icon name="refresh-cw" size={15} /> Rafraîchir
+                            </button>
+                            <button onClick={openInstallModal} className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition-colors text-sm font-medium">
+                                <Icon name="download" size={15} /> Installer un modèle
+                            </button>
+                        </div>
+                    </div>
+
+                    {!ollamaRunning && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-6 flex items-start gap-3">
+                            <Icon name="alert-triangle" size={20} className="text-amber-600 shrink-0 mt-0.5" />
+                            <div>
+                                <p className="text-sm font-medium text-amber-900">Ollama n'est pas accessible</p>
+                                <p className="text-xs text-amber-700 mt-1">Vérifiez que le service Ollama est démarré : <code className="bg-amber-100 px-1 rounded">systemctl status ollama</code></p>
+                            </div>
+                        </div>
+                    )}
+
+                    {loading ? (
+                        <div className="flex items-center justify-center h-64"><Icon name="loader-2" size={32} className="animate-spin text-gray-400" /></div>
+                    ) : models.length === 0 ? (
+                        <div className="bg-white border border-gray-200 rounded-xl px-4 sm:px-6 py-12 sm:py-16 text-center shadow-sm">
+                            <Icon name="brain" size={48} className="text-gray-300 mx-auto mb-4" />
+                            <p className="text-sm sm:text-base text-gray-600 mb-4">Aucun modèle installé</p>
+                            <button onClick={openInstallModal} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium transition-colors">
+                                <Icon name="download" size={15} /> Installer votre premier modèle
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="grid gap-4">
+                            {models.map((model, i) => (
+                                <div key={i} className="bg-white border border-gray-200 rounded-xl p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow">
+                                    <div className="flex items-start justify-between gap-4">
+                                        <div className="flex items-start gap-3 flex-1 min-w-0">
+                                            <div className="w-10 h-10 bg-primary-50 rounded-lg flex items-center justify-center shrink-0">
+                                                <Icon name="brain" size={20} className="text-primary-600" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <h3 className="font-semibold text-gray-900 truncate">{model.name}</h3>
+                                                <div className="flex flex-wrap gap-2 mt-2">
+                                                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-700 rounded-lg text-xs">
+                                                        <Icon name="hard-drive" size={12} /> {model.size}
+                                                    </span>
+                                                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-700 rounded-lg text-xs">
+                                                        <Icon name="clock" size={12} /> {model.modified}
+                                                    </span>
+                                                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-700 rounded-lg text-xs">
+                                                        <Icon name="hash" size={12} /> {model.id}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button 
+                                            onClick={() => handleDelete(model.name)}
+                                            className="p-2 rounded-lg hover:bg-red-50 text-red-600 transition-colors shrink-0"
+                                            title="Supprimer"
+                                        >
+                                            <Icon name="trash-2" size={16} />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Install Modal */}
+                    {showInstallModal && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowInstallModal(false)}>
+                            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+                                <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                                    <h2 className="text-lg font-bold text-gray-900">Installer un modèle</h2>
+                                    <button onClick={() => setShowInstallModal(false)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
+                                        <Icon name="x" size={20} />
+                                    </button>
+                                </div>
+                                <div className="p-6 overflow-y-auto max-h-[calc(80vh-120px)]">
+                                    {availableModels.length === 0 ? (
+                                        <div className="flex items-center justify-center h-32">
+                                            <Icon name="loader-2" size={24} className="animate-spin text-gray-400" />
+                                        </div>
+                                    ) : (
+                                        <div className="grid gap-3">
+                                            {availableModels.map((model, i) => (
+                                                <div key={i} className="border border-gray-200 rounded-lg p-4 hover:border-primary-300 hover:bg-primary-50/30 transition-all">
+                                                    <div className="flex items-start justify-between gap-4">
+                                                        <div className="flex-1 min-w-0">
+                                                            <h3 className="font-semibold text-gray-900">{model.title || model.name}</h3>
+                                                            <p className="text-sm text-gray-600 mt-1">{model.description}</p>
+                                                            <code className="text-xs text-gray-500 mt-2 block">{model.name}</code>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => handleInstall(model.name)}
+                                                            disabled={installing === model.name}
+                                                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium transition-colors disabled:opacity-50 shrink-0"
+                                                        >
+                                                            {installing === model.name ? (
+                                                                <><Icon name="loader-2" size={14} className="animate-spin" /> Installation...</>
+                                                            ) : (
+                                                                <><Icon name="download" size={14} /> Installer</>
+                                                            )}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ============================================
+        // API Keys Page
+        // ============================================
+        function APIKeysPage({ showToast, currentUser, allProjects }) {
+            const [apiKeys, setApiKeys] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [showCreateModal, setShowCreateModal] = useState(false);
+            const [showEditModal, setShowEditModal] = useState(false);
+            const [showUsageModal, setShowUsageModal] = useState(false);
+            const [selectedKey, setSelectedKey] = useState(null);
+            const [models, setModels] = useState([]);
+            const [usage, setUsage] = useState([]);
+            const [form, setForm] = useState({
+                name: '',
+                modelName: '',
+                projects: [],
+                requestsPerMinute: 10
+            });
+
+            const isAdmin = currentUser?.role === 'admin';
+
+            const loadKeys = useCallback(async () => {
+                setLoading(true);
+                const result = await api.get('/api/api-keys');
+                if (result.success) setApiKeys(result.data);
+                setLoading(false);
+            }, []);
+
+            const loadModels = useCallback(async () => {
+                const result = await api.get('/api/admin/ai-models');
+                if (result.success) setModels(result.data);
+            }, []);
+
+            useEffect(() => { 
+                loadKeys(); 
+                loadModels();
+            }, [loadKeys, loadModels]);
+
+            async function handleCreate(e) {
+                e.preventDefault();
+                const result = await api.post('/api/api-keys', {
+                    ...form,
+                    createdBy: currentUser.username
+                });
+                
+                if (result.success) {
+                    showToast('Clé API créée avec succès', 'success');
+                    setShowCreateModal(false);
+                    setForm({ name: '', modelName: '', projects: [], requestsPerMinute: 10 });
+                    loadKeys();
+                    
+                    // Show full key in alert
+                    alert(`Clé API créée !\n\nNom: ${result.data.name}\nClé: ${result.data.key}\n\n⚠️ IMPORTANT: Copiez cette clé maintenant, elle ne sera plus affichée en entier.`);
+                } else {
+                    showToast(result.error, 'error');
+                }
+            }
+
+            async function handleUpdate(e) {
+                e.preventDefault();
+                const result = await api.put(`/api/api-keys/${selectedKey.id}`, form);
+                
+                if (result.success) {
+                    showToast('Clé API mise à jour', 'success');
+                    setShowEditModal(false);
+                    setSelectedKey(null);
+                    loadKeys();
+                } else {
+                    showToast(result.error, 'error');
+                }
+            }
+
+            async function handleDelete(key) {
+                if (!confirm(`Supprimer la clé "${key.name}" ?`)) return;
+                
+                const result = await api.del(`/api/api-keys/${key.id}`);
+                if (result.success) {
+                    showToast('Clé API supprimée', 'success');
+                    loadKeys();
+                } else {
+                    showToast(result.error, 'error');
+                }
+            }
+
+            async function handleRegenerate(key) {
+                if (!confirm(`Régénérer la clé "${key.name}" ?\n\nL'ancienne clé ne fonctionnera plus.`)) return;
+                
+                const result = await api.post(`/api/api-keys/${key.id}/regenerate`);
+                if (result.success) {
+                    showToast('Clé régénérée', 'success');
+                    alert(`Nouvelle clé: ${result.data.key}\n\n⚠️ Copiez-la maintenant !`);
+                    loadKeys();
+                } else {
+                    showToast(result.error, 'error');
+                }
+            }
+
+            async function handleShowUsage(key) {
+                setSelectedKey(key);
+                setShowUsageModal(true);
+                const result = await api.get(`/api/api-keys/${key.id}/usage?limit=100`);
+                if (result.success) setUsage(result.data);
+            }
+
+            function openCreateModal() {
+                setForm({ name: '', modelName: '', projects: [], requestsPerMinute: 10 });
+                setShowCreateModal(true);
+            }
+
+            function openEditModal(key) {
+                setSelectedKey(key);
+                setForm({
+                    name: key.name,
+                    modelName: key.modelName,
+                    projects: key.projects || [],
+                    requestsPerMinute: key.limits?.requestsPerMinute || 10,
+                    status: key.status
+                });
+                setShowEditModal(true);
+            }
+
+            const userProjects = isAdmin ? allProjects : allProjects.filter(p => currentUser?.projects?.includes(p.name));
+
+            return (
+                <div className="fade-in">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sm:mb-8">
+                        <div>
+                            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Clés API</h1>
+                            <p className="text-sm sm:text-base text-gray-600 mt-1">Gérez l'accès à vos modèles IA</p>
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={() => { setLoading(true); loadKeys(); }} className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 transition-colors text-sm">
+                                <Icon name="refresh-cw" size={15} /> Rafraîchir
+                            </button>
+                            <button onClick={openCreateModal} className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition-colors text-sm font-medium">
+                                <Icon name="plus" size={15} /> Nouvelle clé
+                            </button>
+                        </div>
+                    </div>
+
+                    {loading ? (
+                        <div className="flex items-center justify-center h-64"><Icon name="loader-2" size={32} className="animate-spin text-gray-400" /></div>
+                    ) : apiKeys.length === 0 ? (
+                        <div className="bg-white border border-gray-200 rounded-xl px-4 sm:px-6 py-12 sm:py-16 text-center shadow-sm">
+                            <Icon name="key" size={48} className="text-gray-300 mx-auto mb-4" />
+                            <p className="text-sm sm:text-base text-gray-600 mb-4">Aucune clé API</p>
+                            <button onClick={openCreateModal} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium transition-colors">
+                                <Icon name="plus" size={15} /> Créer votre première clé
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="grid gap-4">
+                            {apiKeys.map((key) => (
+                                <div key={key.id} className="bg-white border border-gray-200 rounded-xl p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow">
+                                    <div className="flex items-start justify-between gap-4 mb-4">
+                                        <div className="flex items-start gap-3 flex-1 min-w-0">
+                                            <div className="w-10 h-10 bg-primary-50 rounded-lg flex items-center justify-center shrink-0">
+                                                <Icon name="key" size={20} className="text-primary-600" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <h3 className="font-semibold text-gray-900">{key.name}</h3>
+                                                <code className="text-xs text-gray-500 block mt-1 truncate">{key.key}</code>
+                                            </div>
+                                        </div>
+                                        <span className={`px-2 py-1 rounded-lg text-xs font-medium shrink-0 ${
+                                            key.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                        }`}>
+                                            {key.status === 'active' ? 'Active' : 'Désactivée'}
+                                        </span>
+                                    </div>
+                                    
+                                    <div className="grid grid-cols-2 gap-3 mb-4">
+                                        <div>
+                                            <p className="text-xs text-gray-500 mb-1">Modèle</p>
+                                            <p className="text-sm font-medium text-gray-900">{key.modelName}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs text-gray-500 mb-1">Limite</p>
+                                            <p className="text-sm font-medium text-gray-900">{key.limits?.requestsPerMinute || 0} req/min</p>
+                                        </div>
+                                    </div>
+
+                                    {key.projects && key.projects.length > 0 && (
+                                        <div className="mb-4">
+                                            <p className="text-xs text-gray-500 mb-2">Projets associés</p>
+                                            <div className="flex flex-wrap gap-1">
+                                                {key.projects.map(p => (
+                                                    <span key={p} className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">{p}</span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-200">
+                                        <button onClick={() => openEditModal(key)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium transition-colors">
+                                            <Icon name="edit" size={12} /> Éditer
+                                        </button>
+                                        <button onClick={() => handleShowUsage(key)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium transition-colors">
+                                            <Icon name="bar-chart" size={12} /> Usage
+                                        </button>
+                                        <button onClick={() => handleRegenerate(key)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-700 text-xs font-medium transition-colors">
+                                            <Icon name="refresh-cw" size={12} /> Régénérer
+                                        </button>
+                                        <button onClick={() => handleDelete(key)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-100 hover:bg-red-200 text-red-700 text-xs font-medium transition-colors">
+                                            <Icon name="trash-2" size={12} /> Supprimer
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Create Modal */}
+                    {showCreateModal && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowCreateModal(false)}>
+                            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full" onClick={e => e.stopPropagation()}>
+                                <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                                    <h2 className="text-lg font-bold text-gray-900">Créer une clé API</h2>
+                                    <button onClick={() => setShowCreateModal(false)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
+                                        <Icon name="x" size={20} />
+                                    </button>
+                                </div>
+                                <form onSubmit={handleCreate} className="p-6 space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Nom</label>
+                                        <input
+                                            type="text"
+                                            value={form.name}
+                                            onChange={e => setForm({...form, name: e.target.value})}
+                                            required
+                                            placeholder="Production API"
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/10 text-sm"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Modèle IA</label>
+                                        <select
+                                            value={form.modelName}
+                                            onChange={e => setForm({...form, modelName: e.target.value})}
+                                            required
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/10 text-sm"
+                                        >
+                                            <option value="">Sélectionner un modèle</option>
+                                            {models.map(m => (
+                                                <option key={m.name} value={m.name}>{m.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Projets autorisés</label>
+                                        <div className="border border-gray-300 rounded-lg p-3 max-h-40 overflow-y-auto space-y-2">
+                                            {userProjects.map(p => (
+                                                <label key={p.name} className="flex items-center gap-2 cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={form.projects.includes(p.name)}
+                                                        onChange={e => {
+                                                            if (e.target.checked) {
+                                                                setForm({...form, projects: [...form.projects, p.name]});
+                                                            } else {
+                                                                setForm({...form, projects: form.projects.filter(n => n !== p.name)});
+                                                            }
+                                                        }}
+                                                        className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                                                    />
+                                                    <span className="text-sm text-gray-700">{p.name}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Limite (requêtes/minute)</label>
+                                        <input
+                                            type="number"
+                                            value={form.requestsPerMinute}
+                                            onChange={e => setForm({...form, requestsPerMinute: parseInt(e.target.value)})}
+                                            min="1"
+                                            max="1000"
+                                            required
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/10 text-sm"
+                                        />
+                                    </div>
+                                    <div className="flex gap-3 pt-2">
+                                        <button type="button" onClick={() => setShowCreateModal(false)} className="flex-1 px-4 py-2.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium transition-colors">
+                                            Annuler
+                                        </button>
+                                        <button type="submit" className="flex-1 px-4 py-2.5 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium transition-colors">
+                                            Créer
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Edit Modal */}
+                    {showEditModal && selectedKey && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowEditModal(false)}>
+                            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full" onClick={e => e.stopPropagation()}>
+                                <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                                    <h2 className="text-lg font-bold text-gray-900">Éditer la clé API</h2>
+                                    <button onClick={() => setShowEditModal(false)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
+                                        <Icon name="x" size={20} />
+                                    </button>
+                                </div>
+                                <form onSubmit={handleUpdate} className="p-6 space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Nom</label>
+                                        <input
+                                            type="text"
+                                            value={form.name}
+                                            onChange={e => setForm({...form, name: e.target.value})}
+                                            required
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/10 text-sm"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Modèle IA</label>
+                                        <select
+                                            value={form.modelName}
+                                            onChange={e => setForm({...form, modelName: e.target.value})}
+                                            required
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/10 text-sm"
+                                        >
+                                            {models.map(m => (
+                                                <option key={m.name} value={m.name}>{m.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Projets autorisés</label>
+                                        <div className="border border-gray-300 rounded-lg p-3 max-h-40 overflow-y-auto space-y-2">
+                                            {userProjects.map(p => (
+                                                <label key={p.name} className="flex items-center gap-2 cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={form.projects.includes(p.name)}
+                                                        onChange={e => {
+                                                            if (e.target.checked) {
+                                                                setForm({...form, projects: [...form.projects, p.name]});
+                                                            } else {
+                                                                setForm({...form, projects: form.projects.filter(n => n !== p.name)});
+                                                            }
+                                                        }}
+                                                        className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                                                    />
+                                                    <span className="text-sm text-gray-700">{p.name}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Limite (requêtes/minute)</label>
+                                        <input
+                                            type="number"
+                                            value={form.requestsPerMinute}
+                                            onChange={e => setForm({...form, requestsPerMinute: parseInt(e.target.value)})}
+                                            min="1"
+                                            max="1000"
+                                            required
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/10 text-sm"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Statut</label>
+                                        <select
+                                            value={form.status}
+                                            onChange={e => setForm({...form, status: e.target.value})}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/10 text-sm"
+                                        >
+                                            <option value="active">Active</option>
+                                            <option value="inactive">Désactivée</option>
+                                        </select>
+                                    </div>
+                                    <div className="flex gap-3 pt-2">
+                                        <button type="button" onClick={() => setShowEditModal(false)} className="flex-1 px-4 py-2.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium transition-colors">
+                                            Annuler
+                                        </button>
+                                        <button type="submit" className="flex-1 px-4 py-2.5 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium transition-colors">
+                                            Sauvegarder
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Usage Modal */}
+                    {showUsageModal && selectedKey && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowUsageModal(false)}>
+                            <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+                                <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                                    <h2 className="text-lg font-bold text-gray-900">Historique d'utilisation - {selectedKey.name}</h2>
+                                    <button onClick={() => setShowUsageModal(false)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
+                                        <Icon name="x" size={20} />
+                                    </button>
+                                </div>
+                                <div className="p-6 overflow-y-auto max-h-[calc(80vh-120px)]">
+                                    {usage.length === 0 ? (
+                                        <div className="text-center py-12">
+                                            <Icon name="bar-chart" size={48} className="text-gray-300 mx-auto mb-4" />
+                                            <p className="text-gray-600">Aucune utilisation enregistrée</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {usage.map((u, i) => (
+                                                <div key={i} className="border border-gray-200 rounded-lg p-4">
+                                                    <div className="flex items-start justify-between gap-4">
+                                                        <div className="flex-1">
+                                                            <p className="text-sm font-medium text-gray-900">{u.endpoint}</p>
+                                                            <p className="text-xs text-gray-500 mt-1">
+                                                                {new Date(u.timestamp).toLocaleString('fr-FR')}
+                                                            </p>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <p className="text-xs text-gray-500">Modèle</p>
+                                                            <p className="text-sm font-medium text-gray-900">{u.model}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ============================================
         // PM2 Status Page
         // ============================================
         function PM2StatusPage({ showToast }) {
@@ -4110,6 +4727,11 @@
                     case 'users':
                         if (!isAdmin) return <DashboardPage projects={visibleProjects} onNavigate={navigate} onRefresh={loadProjects} showToast={showToast} currentUser={currentUser} />;
                         return <UsersManagementPage showToast={showToast} onNavigate={navigate} allProjects={allProjects} />;
+                    case 'ai-models':
+                        if (!isAdmin) return <DashboardPage projects={visibleProjects} onNavigate={navigate} onRefresh={loadProjects} showToast={showToast} currentUser={currentUser} />;
+                        return <AIModelsPage showToast={showToast} />;
+                    case 'api-keys':
+                        return <APIKeysPage showToast={showToast} currentUser={currentUser} allProjects={allProjects} />;
                     case 'pm2':
                         if (!isAdmin) return <DashboardPage projects={visibleProjects} onNavigate={navigate} onRefresh={loadProjects} showToast={showToast} currentUser={currentUser} />;
                         return <PM2StatusPage showToast={showToast} />;
