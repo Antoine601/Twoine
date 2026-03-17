@@ -269,8 +269,10 @@ export default {
     ensureSftpGroup,
     createSftpUser,
     deleteSftpUser,
+    renameSftpUser,
     updateSSHConfig,
     isSftpConfigured,
     changeSftpPassword,
-    getSftpUserInfo
+    getSftpUserInfo,
+    SFTP_USER_PREFIX
 };
