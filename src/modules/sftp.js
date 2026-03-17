@@ -199,6 +199,32 @@ export function isSftpConfigured() {
 }
 
 /**
+ * Renomme un utilisateur SFTP
+ * @param {string} oldProjectName - Ancien nom du projet
+ * @param {string} newProjectName - Nouveau nom du projet
+ * @returns {Promise<void>}
+ */
+export async function renameSftpUser(oldProjectName, newProjectName) {
+    const oldUsername = `${SFTP_USER_PREFIX}${oldProjectName}`;
+    const newUsername = `${SFTP_USER_PREFIX}${newProjectName}`;
+
+    if (!shell.userExists(oldUsername)) {
+        throw new Error(`L'utilisateur ${oldUsername} n'existe pas`);
+    }
+
+    if (shell.userExists(newUsername)) {
+        throw new Error(`L'utilisateur ${newUsername} existe déjà`);
+    }
+
+    logger.info(`Renommage de l'utilisateur ${oldUsername} vers ${newUsername}...`);
+
+    // Renommer l'utilisateur avec usermod
+    await shell.execCommand(`usermod -l ${newUsername} ${oldUsername}`);
+    
+    logger.success(`Utilisateur SFTP renommé: ${oldUsername} → ${newUsername}`);
+}
+
+/**
  * Change le mot de passe d'un utilisateur SFTP
  * @param {string} projectName - Nom du projet
  * @param {string} newPassword - Nouveau mot de passe

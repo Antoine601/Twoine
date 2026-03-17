@@ -980,6 +980,51 @@ export async function getMongoCollections(id) {
     }
 }
 
+/**
+ * Met à jour le projectName de toutes les bases de données associées à un projet
+ * @param {string} oldProjectName - Ancien nom du projet
+ * @param {string} newProjectName - Nouveau nom du projet
+ * @returns {number} - Nombre de bases de données mises à jour
+ */
+export function updateProjectNameInDatabases(oldProjectName, newProjectName) {
+    const databases = loadDatabases();
+    let updatedCount = 0;
+
+    // Mettre à jour MySQL
+    databases.mysql = databases.mysql.map(db => {
+        if (db.projectName === oldProjectName) {
+            updatedCount++;
+            return { ...db, projectName: newProjectName, updatedAt: new Date().toISOString() };
+        }
+        return db;
+    });
+
+    // Mettre à jour MongoDB
+    databases.mongodb = databases.mongodb.map(db => {
+        if (db.projectName === oldProjectName) {
+            updatedCount++;
+            return { ...db, projectName: newProjectName, updatedAt: new Date().toISOString() };
+        }
+        return db;
+    });
+
+    // Mettre à jour PostgreSQL
+    databases.postgresql = databases.postgresql.map(db => {
+        if (db.projectName === oldProjectName) {
+            updatedCount++;
+            return { ...db, projectName: newProjectName, updatedAt: new Date().toISOString() };
+        }
+        return db;
+    });
+
+    if (updatedCount > 0) {
+        saveDatabases(databases);
+        logger.info(`${updatedCount} base(s) de données mise(s) à jour avec le nouveau nom de projet`);
+    }
+
+    return updatedCount;
+}
+
 export default {
     initDatabasesConfig,
     loadDatabases,
@@ -1009,5 +1054,6 @@ export default {
     executePostgreSQLQuery,
     getPostgreSQLTables,
     getPostgreSQLTableStructure,
-    getPostgreSQLTableData
+    getPostgreSQLTableData,
+    updateProjectNameInDatabases
 };

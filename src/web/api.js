@@ -104,6 +104,28 @@ router.delete('/projects/:name', async (req, res) => {
     }
 });
 
+/**
+ * PUT /api/projects/:name/rename - Renommer un projet
+ */
+router.put('/projects/:name/rename', async (req, res) => {
+    try {
+        const { newName } = req.body;
+        if (!newName) {
+            return res.status(400).json({ success: false, error: 'Le nouveau nom est requis' });
+        }
+
+        await projects.renameProject(req.params.name, newName);
+        res.json({ 
+            success: true, 
+            message: `Projet renommé: ${req.params.name} → ${newName}`,
+            data: { oldName: req.params.name, newName }
+        });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
 // ============================================
 // SERVICES
 // ============================================

@@ -8,6 +8,7 @@ import { BASE_PATH, PROJECT_STRUCTURE, TOOL_CONFIG_PATH, PROJECTS_CONFIG_FILE } 
 import sftp from './sftp.js';
 import shell from '../utils/shell.js';
 import logger from '../utils/logger.js';
+import databases from './databases.js';
 
 /**
  * Initialise les dossiers de configuration de l'outil
@@ -279,14 +280,136 @@ export async function listProjectsWithStatus() {
  * @returns {Promise<void>}
  */
 export async function renameProject(oldName, newName) {
-    // Cette fonctionnalité est complexe car elle implique:
-    // - Renommer l'utilisateur SFTP
-    // - Renommer le dossier
-    // - Mettre à jour tous les services PM2
-    // - Mettre à jour la configuration SSH
+    // Valider le nouveau nom
+    if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(newName)) {
+        throw new Error('Le nom du projet doit commencer par une lettre et ne contenir que des lettres, chiffres, tirets et underscores');
+    }
+
+    // Vérifier que l'ancien projet existe
+    const oldProject = getProject(oldName);
+    if (!oldProject) {
+        throw new Error(`Le projet ${oldName} n'existe pas`);
+    }
+
+    // Vérifier que le nouveau nom n'existe pas déjà
+    if (projectExists(newName)) {
+        throw new Error(`Le projet ${newName} existe déjà`);
+    }
+
+    const oldPath = path.join(BASE_PATH, oldName);
+    const newPath = path.join(BASE_PATH, newName);
+
+    // Vérifier que le nouveau dossier n'existe pas
+    if (fs.existsSync(newPath)) {
+        throw new Error(`Le dossier ${newPath} existe déjà`);
+    }
+
+    logger.info(`Renommage du projet ${oldName} vers ${newName}...`);
+
+    // 1. Arrêter tous les services PM2 du projet
+    logger.info('Arrêt des services PM2...');
+    const projectConfig = loadProjectConfig(oldName);
+    const stoppedServices = [];
     
-    // Pour l'instant, on recommande de supprimer et recréer
-    throw new Error('Le renommage de projet n\'est pas encore supporté. Veuillez supprimer et recréer le projet.');
+    for (const service of projectConfig.services || []) {
+        const oldProcessName = `${oldName}-${service.name}`;
+        try {
+            await shell.pm2Command(`delete ${oldProcessName}`);
+            stoppedServices.push(service);
+            logger.debug(`Service ${oldProcessName} arrêté`);
+        } catch (error) {
+            logger.warn(`Impossible d'arrêter ${oldProcessName}: ${error.message}`);
+        }
+    }
+
+    // 2. Renommer l'utilisateur SFTP
+    logger.info('Renommage de l\'utilisateur SFTP...');
+    try {
+        await sftp.renameSftpUser(oldName, newName);
+    } catch (error) {
+        throw new Error(`Erreur lors du renommage de l'utilisateur SFTP: ${error.message}`);
+    }
+
+    // 3. Renommer le dossier du projet
+    logger.info('Renommage du dossier...');
+    try {
+        fs.renameSync(oldPath, newPath);
+        logger.success(`Dossier renommé: ${oldPath} → ${newPath}`);
+    } catch (error) {
+        // Tenter de restaurer l'utilisateur SFTP en cas d'échec
+        try {
+            await sftp.renameSftpUser(newName, oldName);
+        } catch {}
+        throw new Error(`Erreur lors du renommage du dossier: ${error.message}`);
+    }
+
+    // 4. Mettre à jour la configuration du projet
+    logger.info('Mise à jour de la configuration...');
+    projectConfig.name = newName;
+    projectConfig.path = newPath;
+    projectConfig.sftpUser = `${sftp.SFTP_USER_PREFIX}${newName}`;
+    
+    // Mettre à jour les noms PM2 des services
+    for (const service of projectConfig.services || []) {
+        service.pm2Name = `${newName}-${service.name}`;
+        
+        // Mettre à jour les chemins si nécessaire
+        if (service.directory && service.directory.includes(oldPath)) {
+            service.directory = service.directory.replace(oldPath, newPath);
+        }
+    }
+
+    // Sauvegarder la nouvelle configuration
+    saveProjectConfig(newName, projectConfig);
+
+    // Supprimer l'ancienne configuration
+    const oldConfigPath = path.join(oldPath, PROJECT_STRUCTURE.config);
+    if (fs.existsSync(oldConfigPath)) {
+        try {
+            fs.unlinkSync(oldConfigPath);
+        } catch (error) {
+            logger.warn(`Impossible de supprimer l'ancienne config: ${error.message}`);
+        }
+    }
+
+    // 5. Mettre à jour la liste globale des projets
+    logger.info('Mise à jour de la liste des projets...');
+    let projects = loadProjects();
+    projects = projects.map(p => {
+        if (p.name === oldName) {
+            return {
+                ...p,
+                name: newName,
+                path: newPath,
+                sftpUser: `sftp_${newName}`
+            };
+        }
+        return p;
+    });
+    saveProjects(projects);
+
+    // 6. Mettre à jour les bases de données associées
+    logger.info('Mise à jour des bases de données associées...');
+    databases.updateProjectNameInDatabases(oldName, newName);
+
+    // 7. Mettre à jour la configuration SSH
+    logger.info('Mise à jour de la configuration SSH...');
+    await sftp.updateSSHConfig(projects);
+
+    // 8. Redémarrer les services qui étaient actifs
+    logger.info('Redémarrage des services...');
+    for (const service of stoppedServices) {
+        const newProcessName = `${newName}-${service.name}`;
+        try {
+            // Les services seront redémarrés manuellement par l'utilisateur si nécessaire
+            logger.debug(`Service ${service.name} prêt à être redémarré sous ${newProcessName}`);
+        } catch (error) {
+            logger.warn(`Impossible de redémarrer ${newProcessName}: ${error.message}`);
+        }
+    }
+
+    logger.success(`Projet renommé avec succès: ${oldName} → ${newName}`);
+    logger.info(`Note: Les services doivent être redémarrés manuellement`);
 }
 
 export default {
