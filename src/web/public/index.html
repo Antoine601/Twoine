@@ -205,7 +205,6 @@
                 projects: true,
                 databases: true,
                 apiKeys: true,
-                aiModels: currentUser?.role === 'admin',
                 users: currentUser?.role === 'admin'
             });
 
@@ -216,34 +215,14 @@
             const handleExport = async () => {
                 setLoading(true);
                 try {
-                    const exportData = {};
+                    // Envoyer une requête POST avec les sélections
+                    const result = await api.post('/api/export', selectedData);
                     
-                    if (selectedData.projects) {
-                        const result = await api.get('/api/projects');
-                        if (result.success) exportData.projects = result.data;
-                    }
-                    
-                    if (selectedData.databases) {
-                        const result = await api.get('/api/databases');
-                        if (result.success) exportData.databases = result.data;
-                    }
-                    
-                    if (selectedData.apiKeys) {
-                        const result = await api.get('/api/api-keys');
-                        if (result.success) exportData.apiKeys = result.data;
-                    }
-                    
-                    if (selectedData.aiModels && currentUser?.role === 'admin') {
-                        const result = await api.get('/api/ai-models');
-                        if (result.success) exportData.aiModels = result.data;
-                    }
-                    
-                    if (selectedData.users && currentUser?.role === 'admin') {
-                        const result = await api.get('/api/admin/users');
-                        if (result.success) exportData.users = result.data;
+                    if (!result.success) {
+                        throw new Error(result.error || 'Erreur lors de l\'export');
                     }
 
-                    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+                    const blob = new Blob([JSON.stringify(result.data, null, 2)], { type: 'application/json' });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
@@ -310,21 +289,7 @@
                             </label>
 
                             {isAdmin && (
-                                <>
-                                    <label className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors">
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedData.aiModels}
-                                            onChange={() => handleToggle('aiModels')}
-                                            className="w-4 h-4 text-primary-600 rounded focus:ring-2 focus:ring-primary-500"
-                                        />
-                                        <div className="flex items-center gap-2 flex-1">
-                                            <Icon name="brain" size={18} className="text-gray-500" />
-                                            <span className="text-sm font-medium text-gray-700">Modèles IA</span>
-                                        </div>
-                                    </label>
-
-                                    <label className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors">
+                                <label className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors">
                                         <input
                                             type="checkbox"
                                             checked={selectedData.users}
@@ -336,7 +301,6 @@
                                             <span className="text-sm font-medium text-gray-700">Utilisateurs</span>
                                         </div>
                                     </label>
-                                </>
                             )}
                         </div>
 

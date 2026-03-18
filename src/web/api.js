@@ -18,6 +18,12 @@ import multer from 'multer';
 import path from 'path';
 import https from 'https';
 import http from 'http';
+import fs from 'fs';
+import mysql from 'mysql2/promise';
+import { MongoClient } from 'mongodb';
+import pg from 'pg';
+
+const { Pool } = pg;
 
 const router = Router();
 const upload = multer({ dest: '/tmp/uploads/' });
@@ -1774,6 +1780,154 @@ router.post('/ai/generate', async (req, res) => {
 // ============================================
 
 /**
+ * POST /api/export - Exporter les données sélectionnées avec fichiers et données de BDD
+ */
+router.post('/export', async (req, res) => {
+    try {
+        const { projects: exportProjects, databases: exportDatabases, apiKeys: exportApiKeys, users: exportUsers } = req.body;
+        const exportData = {};
+
+        // Exporter les projets avec leurs fichiers
+        if (exportProjects) {
+            const projectsList = await projects.listProjectsWithStatus();
+            exportData.projects = [];
+            
+            for (const project of projectsList) {
+                const config = projects.loadProjectConfig(project.name);
+                const projectData = {
+                    name: project.name,
+                    sftpUser: project.sftpUser,
+                    createdAt: project.createdAt,
+                    config: config,
+                    files: null
+                };
+
+                // Lire les fichiers du projet (sites/)
+                try {
+                    const projectPath = `/var/www/${project.name}/sites`;
+                    if (fs.existsSync(projectPath)) {
+                        const { execSync } = await import('child_process');
+                        // Créer une archive tar.gz en base64
+                        const archivePath = `/tmp/twoine-export-${project.name}-${Date.now()}.tar.gz`;
+                        execSync(`tar -czf ${archivePath} -C ${projectPath} .`);
+                        const archiveBuffer = fs.readFileSync(archivePath);
+                        projectData.files = archiveBuffer.toString('base64');
+                        fs.unlinkSync(archivePath); // Nettoyer
+                    }
+                } catch (error) {
+                    logger.error(`Erreur export fichiers projet ${project.name}: ${error.message}`);
+                }
+
+                exportData.projects.push(projectData);
+            }
+        }
+
+        // Exporter les bases de données avec leurs données
+        if (exportDatabases) {
+            const allDatabases = databases.getAllDatabases();
+            exportData.databases = [];
+
+            for (const db of allDatabases) {
+                const dbData = {
+                    id: db.id,
+                    name: db.name,
+                    type: db.type,
+                    config: db.config,
+                    assignedProjects: db.assignedProjects,
+                    data: null
+                };
+
+                // Exporter les données selon le type
+                try {
+                    if (db.type === 'mysql') {
+                        const connection = await mysql.createConnection({
+                            host: db.config.host,
+                            port: db.config.port,
+                            user: db.config.user,
+                            password: db.config.password,
+                            database: db.config.database
+                        });
+
+                        // Obtenir toutes les tables
+                        const [tables] = await connection.query('SHOW TABLES');
+                        const tableData = {};
+
+                        for (const tableRow of tables) {
+                            const tableName = Object.values(tableRow)[0];
+                            const [rows] = await connection.query(`SELECT * FROM \`${tableName}\``);
+                            tableData[tableName] = rows;
+                        }
+
+                        dbData.data = tableData;
+                        await connection.end();
+                    } else if (db.type === 'mongodb') {
+                        const client = new MongoClient(db.config.uri);
+                        await client.connect();
+                        const database = client.db();
+                        const collections = await database.listCollections().toArray();
+                        const collectionData = {};
+
+                        for (const coll of collections) {
+                            const data = await database.collection(coll.name).find({}).toArray();
+                            collectionData[coll.name] = data;
+                        }
+
+                        dbData.data = collectionData;
+                        await client.close();
+                    } else if (db.type === 'postgresql') {
+                        const pool = new Pool({
+                            host: db.config.host,
+                            port: db.config.port,
+                            user: db.config.user,
+                            password: db.config.password,
+                            database: db.config.database
+                        });
+
+                        // Obtenir toutes les tables
+                        const tablesResult = await pool.query(`
+                            SELECT table_name 
+                            FROM information_schema.tables 
+                            WHERE table_schema = 'public'
+                        `);
+                        const tableData = {};
+
+                        for (const row of tablesResult.rows) {
+                            const tableName = row.table_name;
+                            const dataResult = await pool.query(`SELECT * FROM "${tableName}"`);
+                            tableData[tableName] = dataResult.rows;
+                        }
+
+                        dbData.data = tableData;
+                        await pool.end();
+                    }
+                } catch (error) {
+                    logger.error(`Erreur export données BDD ${db.name}: ${error.message}`);
+                }
+
+                exportData.databases.push(dbData);
+            }
+        }
+
+        // Exporter les clés API
+        if (exportApiKeys) {
+            const allKeys = apiKeys.getAllKeys();
+            exportData.apiKeys = allKeys;
+        }
+
+        // Exporter les utilisateurs (admin seulement)
+        if (exportUsers) {
+            const allUsers = users.getAllUsers();
+            exportData.users = allUsers;
+        }
+
+        res.json({ success: true, data: exportData });
+    } catch (error) {
+        logger.error(`API Export: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
  * POST /api/import - Importer des données depuis un export
  */
 router.post('/import', async (req, res) => {
@@ -1783,7 +1937,6 @@ router.post('/import', async (req, res) => {
             projects: { success: 0, failed: 0, errors: [] },
             databases: { success: 0, failed: 0, errors: [] },
             apiKeys: { success: 0, failed: 0, errors: [] },
-            aiModels: { success: 0, failed: 0, errors: [] },
             users: { success: 0, failed: 0, errors: [] }
         };
 
@@ -1810,6 +1963,30 @@ router.post('/import', async (req, res) => {
                             scriptsModule.generateScripts(project.name);
                         }
                         
+                        // Restaurer les fichiers si présents
+                        if (project.files) {
+                            try {
+                                const projectPath = `/var/www/${project.name}/sites`;
+                                const archivePath = `/tmp/twoine-import-${project.name}-${Date.now()}.tar.gz`;
+                                
+                                // Décoder le base64 et écrire l'archive
+                                const archiveBuffer = Buffer.from(project.files, 'base64');
+                                fs.writeFileSync(archivePath, archiveBuffer);
+                                
+                                // Extraire l'archive
+                                const { execSync } = await import('child_process');
+                                execSync(`tar -xzf ${archivePath} -C ${projectPath}`);
+                                
+                                // Nettoyer
+                                fs.unlinkSync(archivePath);
+                                
+                                // Changer les permissions
+                                execSync(`chown -R sftp_${project.name}:sftp_${project.name} ${projectPath}`);
+                            } catch (error) {
+                                logger.error(`Erreur import fichiers projet ${project.name}: ${error.message}`);
+                            }
+                        }
+                        
                         results.projects.success++;
                     } else {
                         results.projects.failed++;
@@ -1827,9 +2004,95 @@ router.post('/import', async (req, res) => {
             for (const db of importData.databases) {
                 try {
                     // Vérifier si la base existe déjà
-                    const existing = databases.getDatabase(db.id);
+                    const existing = databases.getDatabaseById(db.id);
                     if (!existing) {
-                        databases.createDatabase(db.name, db.type, db.config);
+                        // Créer la base de données selon le type
+                        if (db.type === 'mysql') {
+                            databases.createMySQLDatabase(db.name, db.config.host, db.config.port, db.config.user, db.config.password, db.config.database);
+                        } else if (db.type === 'mongodb') {
+                            databases.createMongoDatabase(db.name, db.config.uri);
+                        } else if (db.type === 'postgresql') {
+                            databases.createPostgreSQLDatabase(db.name, db.config.host, db.config.port, db.config.user, db.config.password, db.config.database);
+                        }
+                        
+                        // Restaurer les données si présentes
+                        if (db.data) {
+                            try {
+                                if (db.type === 'mysql') {
+                                    const connection = await mysql.createConnection({
+                                        host: db.config.host,
+                                        port: db.config.port,
+                                        user: db.config.user,
+                                        password: db.config.password,
+                                        database: db.config.database
+                                    });
+
+                                    for (const [tableName, rows] of Object.entries(db.data)) {
+                                        if (rows.length > 0) {
+                                            const columns = Object.keys(rows[0]);
+                                            const placeholders = columns.map(() => '?').join(',');
+                                            const insertQuery = `INSERT INTO \`${tableName}\` (${columns.map(c => `\`${c}\``).join(',')}) VALUES (${placeholders})`;
+                                            
+                                            for (const row of rows) {
+                                                const values = columns.map(col => row[col]);
+                                                await connection.query(insertQuery, values);
+                                            }
+                                        }
+                                    }
+
+                                    await connection.end();
+                                } else if (db.type === 'mongodb') {
+                                    const client = new MongoClient(db.config.uri);
+                                    await client.connect();
+                                    const database = client.db();
+
+                                    for (const [collectionName, documents] of Object.entries(db.data)) {
+                                        if (documents.length > 0) {
+                                            await database.collection(collectionName).insertMany(documents);
+                                        }
+                                    }
+
+                                    await client.close();
+                                } else if (db.type === 'postgresql') {
+                                    const pool = new Pool({
+                                        host: db.config.host,
+                                        port: db.config.port,
+                                        user: db.config.user,
+                                        password: db.config.password,
+                                        database: db.config.database
+                                    });
+
+                                    for (const [tableName, rows] of Object.entries(db.data)) {
+                                        if (rows.length > 0) {
+                                            const columns = Object.keys(rows[0]);
+                                            const placeholders = columns.map((_, i) => `$${i + 1}`).join(',');
+                                            const insertQuery = `INSERT INTO "${tableName}" (${columns.map(c => `"${c}"`).join(',')}) VALUES (${placeholders})`;
+                                            
+                                            for (const row of rows) {
+                                                const values = columns.map(col => row[col]);
+                                                await pool.query(insertQuery, values);
+                                            }
+                                        }
+                                    }
+
+                                    await pool.end();
+                                }
+                            } catch (error) {
+                                logger.error(`Erreur import données BDD ${db.name}: ${error.message}`);
+                            }
+                        }
+                        
+                        // Assigner aux projets si nécessaire
+                        if (db.assignedProjects && Array.isArray(db.assignedProjects)) {
+                            for (const projectName of db.assignedProjects) {
+                                try {
+                                    databases.assignDatabaseToProject(db.id, projectName);
+                                } catch (e) {
+                                    logger.error(`Erreur assignation BDD ${db.name} au projet ${projectName}: ${e.message}`);
+                                }
+                            }
+                        }
+                        
                         results.databases.success++;
                     } else {
                         results.databases.failed++;
@@ -1852,25 +2115,6 @@ router.post('/import', async (req, res) => {
                 } catch (error) {
                     results.apiKeys.failed++;
                     results.apiKeys.errors.push(`${key.name}: ${error.message}`);
-                }
-            }
-        }
-
-        // Importer les modèles IA (admin seulement)
-        if (importData.aiModels && Array.isArray(importData.aiModels)) {
-            for (const model of importData.aiModels) {
-                try {
-                    const existing = aiModels.getModel(model.name);
-                    if (!existing) {
-                        aiModels.addModel(model.name, model.displayName, model.description);
-                        results.aiModels.success++;
-                    } else {
-                        results.aiModels.failed++;
-                        results.aiModels.errors.push(`Modèle "${model.name}" existe déjà`);
-                    }
-                } catch (error) {
-                    results.aiModels.failed++;
-                    results.aiModels.errors.push(`${model.name}: ${error.message}`);
                 }
             }
         }
@@ -1904,9 +2148,9 @@ router.post('/import', async (req, res) => {
 
         // Construire le message de résultat
         const totalSuccess = results.projects.success + results.databases.success + 
-                           results.apiKeys.success + results.aiModels.success + results.users.success;
+                           results.apiKeys.success + results.users.success;
         const totalFailed = results.projects.failed + results.databases.failed + 
-                          results.apiKeys.failed + results.aiModels.failed + results.users.failed;
+                          results.apiKeys.failed + results.users.failed;
 
         res.json({
             success: true,
