@@ -1839,7 +1839,7 @@ router.post('/export', async (req, res) => {
 
                 // Exporter les données selon le type
                 try {
-                    if (db.type === 'mysql') {
+                    if (db.type === 'mysql' && db.config && db.config.host) {
                         const connection = await mysql.createConnection({
                             host: db.config.host,
                             port: db.config.port,
@@ -1860,7 +1860,7 @@ router.post('/export', async (req, res) => {
 
                         dbData.data = tableData;
                         await connection.end();
-                    } else if (db.type === 'mongodb') {
+                    } else if (db.type === 'mongodb' && db.config && db.config.uri) {
                         const client = new MongoClient(db.config.uri);
                         await client.connect();
                         const database = client.db();
@@ -1874,7 +1874,7 @@ router.post('/export', async (req, res) => {
 
                         dbData.data = collectionData;
                         await client.close();
-                    } else if (db.type === 'postgresql') {
+                    } else if (db.type === 'postgresql' && db.config && db.config.host) {
                         const pool = new Pool({
                             host: db.config.host,
                             port: db.config.port,
@@ -1910,13 +1910,13 @@ router.post('/export', async (req, res) => {
 
         // Exporter les clés API
         if (exportApiKeys) {
-            const allKeys = apiKeys.getAllKeys();
+            const allKeys = apiKeys.getAllApiKeys();
             exportData.apiKeys = allKeys;
         }
 
         // Exporter les utilisateurs (admin seulement)
         if (exportUsers) {
-            const allUsers = users.getAllUsers();
+            const allUsers = users.listUsers();
             exportData.users = allUsers;
         }
 
@@ -2110,7 +2110,13 @@ router.post('/import', async (req, res) => {
             for (const key of importData.apiKeys) {
                 try {
                     // Créer une nouvelle clé (ne pas réutiliser l'ancienne clé pour des raisons de sécurité)
-                    apiKeys.createKey(key.name, key.modelName, key.rateLimit);
+                    apiKeys.createApiKey({
+                        name: key.name,
+                        modelName: key.modelName,
+                        projects: key.projects || [],
+                        requestsPerMinute: key.rateLimit || key.limits?.requestsPerMinute || 10,
+                        createdBy: 'import'
+                    });
                     results.apiKeys.success++;
                 } catch (error) {
                     results.apiKeys.failed++;
