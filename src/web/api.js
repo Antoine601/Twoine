@@ -1769,4 +1769,154 @@ router.post('/ai/generate', async (req, res) => {
     }
 });
 
+// ============================================
+// IMPORT/EXPORT
+// ============================================
+
+/**
+ * POST /api/import - Importer des données depuis un export
+ */
+router.post('/import', async (req, res) => {
+    try {
+        const importData = req.body;
+        const results = {
+            projects: { success: 0, failed: 0, errors: [] },
+            databases: { success: 0, failed: 0, errors: [] },
+            apiKeys: { success: 0, failed: 0, errors: [] },
+            aiModels: { success: 0, failed: 0, errors: [] },
+            users: { success: 0, failed: 0, errors: [] }
+        };
+
+        // Importer les projets
+        if (importData.projects && Array.isArray(importData.projects)) {
+            for (const project of importData.projects) {
+                try {
+                    // Vérifier si le projet existe déjà
+                    if (!projects.projectExists(project.name)) {
+                        // Créer le projet avec un mot de passe par défaut (l'utilisateur devra le changer)
+                        const defaultPassword = 'changeme123';
+                        await projects.createProject(project.name, defaultPassword);
+                        scriptsModule.generateScripts(project.name);
+                        
+                        // Importer les services si présents
+                        if (project.config && project.config.services) {
+                            for (const service of project.config.services) {
+                                try {
+                                    services.addService(project.name, service);
+                                } catch (e) {
+                                    logger.error(`Erreur import service ${service.name}: ${e.message}`);
+                                }
+                            }
+                            scriptsModule.generateScripts(project.name);
+                        }
+                        
+                        results.projects.success++;
+                    } else {
+                        results.projects.failed++;
+                        results.projects.errors.push(`Projet "${project.name}" existe déjà`);
+                    }
+                } catch (error) {
+                    results.projects.failed++;
+                    results.projects.errors.push(`${project.name}: ${error.message}`);
+                }
+            }
+        }
+
+        // Importer les bases de données
+        if (importData.databases && Array.isArray(importData.databases)) {
+            for (const db of importData.databases) {
+                try {
+                    // Vérifier si la base existe déjà
+                    const existing = databases.getDatabase(db.id);
+                    if (!existing) {
+                        databases.createDatabase(db.name, db.type, db.config);
+                        results.databases.success++;
+                    } else {
+                        results.databases.failed++;
+                        results.databases.errors.push(`Base de données "${db.name}" existe déjà`);
+                    }
+                } catch (error) {
+                    results.databases.failed++;
+                    results.databases.errors.push(`${db.name}: ${error.message}`);
+                }
+            }
+        }
+
+        // Importer les clés API
+        if (importData.apiKeys && Array.isArray(importData.apiKeys)) {
+            for (const key of importData.apiKeys) {
+                try {
+                    // Créer une nouvelle clé (ne pas réutiliser l'ancienne clé pour des raisons de sécurité)
+                    apiKeys.createKey(key.name, key.modelName, key.rateLimit);
+                    results.apiKeys.success++;
+                } catch (error) {
+                    results.apiKeys.failed++;
+                    results.apiKeys.errors.push(`${key.name}: ${error.message}`);
+                }
+            }
+        }
+
+        // Importer les modèles IA (admin seulement)
+        if (importData.aiModels && Array.isArray(importData.aiModels)) {
+            for (const model of importData.aiModels) {
+                try {
+                    const existing = aiModels.getModel(model.name);
+                    if (!existing) {
+                        aiModels.addModel(model.name, model.displayName, model.description);
+                        results.aiModels.success++;
+                    } else {
+                        results.aiModels.failed++;
+                        results.aiModels.errors.push(`Modèle "${model.name}" existe déjà`);
+                    }
+                } catch (error) {
+                    results.aiModels.failed++;
+                    results.aiModels.errors.push(`${model.name}: ${error.message}`);
+                }
+            }
+        }
+
+        // Importer les utilisateurs (admin seulement)
+        if (importData.users && Array.isArray(importData.users)) {
+            for (const user of importData.users) {
+                try {
+                    // Ne pas importer l'utilisateur admin par défaut
+                    if (user.username === 'admin') {
+                        results.users.failed++;
+                        results.users.errors.push('Impossible d\'importer l\'utilisateur admin');
+                        continue;
+                    }
+                    
+                    const existing = users.getUser(user.username);
+                    if (!existing) {
+                        // Créer avec un mot de passe par défaut
+                        users.createUser(user.username, 'changeme123', user.role, user.projects || []);
+                        results.users.success++;
+                    } else {
+                        results.users.failed++;
+                        results.users.errors.push(`Utilisateur "${user.username}" existe déjà`);
+                    }
+                } catch (error) {
+                    results.users.failed++;
+                    results.users.errors.push(`${user.username}: ${error.message}`);
+                }
+            }
+        }
+
+        // Construire le message de résultat
+        const totalSuccess = results.projects.success + results.databases.success + 
+                           results.apiKeys.success + results.aiModels.success + results.users.success;
+        const totalFailed = results.projects.failed + results.databases.failed + 
+                          results.apiKeys.failed + results.aiModels.failed + results.users.failed;
+
+        res.json({
+            success: true,
+            message: `Import terminé: ${totalSuccess} réussi(s), ${totalFailed} échoué(s)`,
+            results
+        });
+    } catch (error) {
+        logger.error(`API Import: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 export default router;

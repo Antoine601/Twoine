@@ -197,6 +197,343 @@
         }
 
         // ============================================
+        // Export Modal
+        // ============================================
+        function ExportModal({ onClose, showToast, currentUser }) {
+            const [loading, setLoading] = useState(false);
+            const [selectedData, setSelectedData] = useState({
+                projects: true,
+                databases: true,
+                apiKeys: true,
+                aiModels: currentUser?.role === 'admin',
+                users: currentUser?.role === 'admin'
+            });
+
+            const handleToggle = (key) => {
+                setSelectedData(prev => ({ ...prev, [key]: !prev[key] }));
+            };
+
+            const handleExport = async () => {
+                setLoading(true);
+                try {
+                    const exportData = {};
+                    
+                    if (selectedData.projects) {
+                        const result = await api.get('/api/projects');
+                        if (result.success) exportData.projects = result.data;
+                    }
+                    
+                    if (selectedData.databases) {
+                        const result = await api.get('/api/databases');
+                        if (result.success) exportData.databases = result.data;
+                    }
+                    
+                    if (selectedData.apiKeys) {
+                        const result = await api.get('/api/api-keys');
+                        if (result.success) exportData.apiKeys = result.data;
+                    }
+                    
+                    if (selectedData.aiModels && currentUser?.role === 'admin') {
+                        const result = await api.get('/api/ai-models');
+                        if (result.success) exportData.aiModels = result.data;
+                    }
+                    
+                    if (selectedData.users && currentUser?.role === 'admin') {
+                        const result = await api.get('/api/admin/users');
+                        if (result.success) exportData.users = result.data;
+                    }
+
+                    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `twoine-export-${new Date().toISOString().split('T')[0]}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+
+                    showToast('Export réussi', 'success');
+                    onClose();
+                } catch (error) {
+                    showToast(error.message || 'Erreur lors de l\'export', 'error');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const isAdmin = currentUser?.role === 'admin';
+
+            return (
+                <Modal title="Exporter les données" onClose={onClose}>
+                    <div className="space-y-4">
+                        <p className="text-sm text-gray-600">Sélectionnez les données à exporter :</p>
+                        
+                        <div className="space-y-2">
+                            <label className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors">
+                                <input
+                                    type="checkbox"
+                                    checked={selectedData.projects}
+                                    onChange={() => handleToggle('projects')}
+                                    className="w-4 h-4 text-primary-600 rounded focus:ring-2 focus:ring-primary-500"
+                                />
+                                <div className="flex items-center gap-2 flex-1">
+                                    <Icon name="folder-open" size={18} className="text-gray-500" />
+                                    <span className="text-sm font-medium text-gray-700">Projets</span>
+                                </div>
+                            </label>
+
+                            <label className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors">
+                                <input
+                                    type="checkbox"
+                                    checked={selectedData.databases}
+                                    onChange={() => handleToggle('databases')}
+                                    className="w-4 h-4 text-primary-600 rounded focus:ring-2 focus:ring-primary-500"
+                                />
+                                <div className="flex items-center gap-2 flex-1">
+                                    <Icon name="database" size={18} className="text-gray-500" />
+                                    <span className="text-sm font-medium text-gray-700">Bases de données</span>
+                                </div>
+                            </label>
+
+                            <label className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors">
+                                <input
+                                    type="checkbox"
+                                    checked={selectedData.apiKeys}
+                                    onChange={() => handleToggle('apiKeys')}
+                                    className="w-4 h-4 text-primary-600 rounded focus:ring-2 focus:ring-primary-500"
+                                />
+                                <div className="flex items-center gap-2 flex-1">
+                                    <Icon name="key" size={18} className="text-gray-500" />
+                                    <span className="text-sm font-medium text-gray-700">Clés API</span>
+                                </div>
+                            </label>
+
+                            {isAdmin && (
+                                <>
+                                    <label className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedData.aiModels}
+                                            onChange={() => handleToggle('aiModels')}
+                                            className="w-4 h-4 text-primary-600 rounded focus:ring-2 focus:ring-primary-500"
+                                        />
+                                        <div className="flex items-center gap-2 flex-1">
+                                            <Icon name="brain" size={18} className="text-gray-500" />
+                                            <span className="text-sm font-medium text-gray-700">Modèles IA</span>
+                                        </div>
+                                    </label>
+
+                                    <label className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedData.users}
+                                            onChange={() => handleToggle('users')}
+                                            className="w-4 h-4 text-primary-600 rounded focus:ring-2 focus:ring-primary-500"
+                                        />
+                                        <div className="flex items-center gap-2 flex-1">
+                                            <Icon name="users" size={18} className="text-gray-500" />
+                                            <span className="text-sm font-medium text-gray-700">Utilisateurs</span>
+                                        </div>
+                                    </label>
+                                </>
+                            )}
+                        </div>
+
+                        <div className="flex justify-end gap-3 pt-4">
+                            <button
+                                onClick={onClose}
+                                className="px-4 py-2 rounded-lg bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 transition-colors"
+                                disabled={loading}
+                            >
+                                Annuler
+                            </button>
+                            <button
+                                onClick={handleExport}
+                                disabled={loading || !Object.values(selectedData).some(v => v)}
+                                className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                            >
+                                {loading ? (
+                                    <>
+                                        <Icon name="loader" size={16} className="animate-spin" />
+                                        <span>Export...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Icon name="download" size={16} />
+                                        <span>Exporter</span>
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        }
+
+        // ============================================
+        // Import Modal
+        // ============================================
+        function ImportModal({ onClose, showToast, onSuccess }) {
+            const [loading, setLoading] = useState(false);
+            const [dragActive, setDragActive] = useState(false);
+            const [file, setFile] = useState(null);
+            const fileInputRef = useRef(null);
+
+            const handleDrag = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.type === 'dragenter' || e.type === 'dragover') {
+                    setDragActive(true);
+                } else if (e.type === 'dragleave') {
+                    setDragActive(false);
+                }
+            };
+
+            const handleDrop = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDragActive(false);
+                
+                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                    handleFile(e.dataTransfer.files[0]);
+                }
+            };
+
+            const handleChange = (e) => {
+                e.preventDefault();
+                if (e.target.files && e.target.files[0]) {
+                    handleFile(e.target.files[0]);
+                }
+            };
+
+            const handleFile = (selectedFile) => {
+                if (selectedFile.type !== 'application/json') {
+                    showToast('Le fichier doit être au format JSON', 'error');
+                    return;
+                }
+                setFile(selectedFile);
+            };
+
+            const handleImport = async () => {
+                if (!file) return;
+                
+                setLoading(true);
+                try {
+                    const text = await file.text();
+                    const data = JSON.parse(text);
+
+                    const result = await api.post('/api/import', data);
+                    if (result.success) {
+                        showToast('Import réussi', 'success');
+                        onClose();
+                        if (onSuccess) onSuccess();
+                    } else {
+                        throw new Error(result.error || 'Erreur lors de l\'import');
+                    }
+                } catch (error) {
+                    if (error instanceof SyntaxError) {
+                        showToast('Fichier JSON invalide', 'error');
+                    } else {
+                        showToast(error.message || 'Erreur lors de l\'import', 'error');
+                    }
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <Modal title="Importer des données" onClose={onClose}>
+                    <div className="space-y-4">
+                        <p className="text-sm text-gray-600">Importez un fichier JSON d'export Twoine :</p>
+                        
+                        <div
+                            className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                                dragActive 
+                                    ? 'border-primary-500 bg-primary-50' 
+                                    : file 
+                                        ? 'border-green-500 bg-green-50'
+                                        : 'border-gray-300 hover:border-gray-400'
+                            }`}
+                            onDragEnter={handleDrag}
+                            onDragLeave={handleDrag}
+                            onDragOver={handleDrag}
+                            onDrop={handleDrop}
+                        >
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept=".json,application/json"
+                                onChange={handleChange}
+                                className="hidden"
+                            />
+                            
+                            {file ? (
+                                <div className="space-y-3">
+                                    <Icon name="file-check" size={48} className="mx-auto text-green-600" />
+                                    <div>
+                                        <p className="text-sm font-medium text-gray-900">{file.name}</p>
+                                        <p className="text-xs text-gray-500 mt-1">{(file.size / 1024).toFixed(2)} KB</p>
+                                    </div>
+                                    <button
+                                        onClick={() => setFile(null)}
+                                        className="text-sm text-red-600 hover:text-red-700 font-medium"
+                                    >
+                                        Supprimer
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    <Icon name="upload" size={48} className="mx-auto text-gray-400" />
+                                    <div>
+                                        <p className="text-sm font-medium text-gray-700">
+                                            Glissez-déposez votre fichier ici
+                                        </p>
+                                        <p className="text-xs text-gray-500 mt-1">ou</p>
+                                    </div>
+                                    <button
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="px-4 py-2 rounded-lg bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 transition-colors text-sm font-medium"
+                                    >
+                                        Parcourir les fichiers
+                                    </button>
+                                    <p className="text-xs text-gray-400 mt-2">Format JSON uniquement</p>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="flex justify-end gap-3 pt-4">
+                            <button
+                                onClick={onClose}
+                                className="px-4 py-2 rounded-lg bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 transition-colors"
+                                disabled={loading}
+                            >
+                                Annuler
+                            </button>
+                            <button
+                                onClick={handleImport}
+                                disabled={loading || !file}
+                                className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                            >
+                                {loading ? (
+                                    <>
+                                        <Icon name="loader" size={16} className="animate-spin" />
+                                        <span>Import...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Icon name="upload" size={16} />
+                                        <span>Importer</span>
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        }
+
+        // ============================================
         // Status Badge
         // ============================================
         function StatusBadge({ status }) {
@@ -212,7 +549,7 @@
         // ============================================
         // Sidebar
         // ============================================
-        function Sidebar({ currentPage, onNavigate, projectCount, currentUser, onLogout, isOpen, onClose }) {
+        function Sidebar({ currentPage, onNavigate, projectCount, currentUser, onLogout, isOpen, onClose, onExport, onImport }) {
             const isAdmin = currentUser?.role === 'admin';
             
             const links = [
@@ -291,6 +628,24 @@
                     </nav>
 
                     <div className="px-4 py-4 border-t border-gray-200 space-y-3">
+                        <div className="grid grid-cols-2 gap-2">
+                            <button
+                                onClick={onExport}
+                                className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-600 hover:text-primary-600 hover:bg-primary-50 transition-colors"
+                                title="Exporter les données"
+                            >
+                                <Icon name="download" size={16} />
+                                <span>Exporter</span>
+                            </button>
+                            <button
+                                onClick={onImport}
+                                className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-600 hover:text-primary-600 hover:bg-primary-50 transition-colors"
+                                title="Importer des données"
+                            >
+                                <Icon name="upload" size={16} />
+                                <span>Importer</span>
+                            </button>
+                        </div>
                         <button
                             onClick={onLogout}
                             className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors"
@@ -5957,6 +6312,8 @@
             const [allProjects, setAllProjects] = useState([]);
             const [toast, setToast] = useState(null);
             const [sidebarOpen, setSidebarOpen] = useState(false);
+            const [showExportModal, setShowExportModal] = useState(false);
+            const [showImportModal, setShowImportModal] = useState(false);
 
             const loadProjects = useCallback(async () => {
                 const result = await api.get('/api/projects');
@@ -6079,6 +6436,8 @@
                         onLogout={handleLogout}
                         isOpen={sidebarOpen}
                         onClose={() => setSidebarOpen(false)}
+                        onExport={() => setShowExportModal(true)}
+                        onImport={() => setShowImportModal(true)}
                     />
                     <main className="flex-1 overflow-y-auto flex flex-col">
                         <MobileHeader onMenuClick={() => setSidebarOpen(true)} currentUser={currentUser} />
@@ -6087,6 +6446,8 @@
                         </div>
                     </main>
                     {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+                    {showExportModal && <ExportModal onClose={() => setShowExportModal(false)} showToast={showToast} currentUser={currentUser} />}
+                    {showImportModal && <ImportModal onClose={() => setShowImportModal(false)} showToast={showToast} onSuccess={loadProjects} />}
                 </div>
             );
         }
