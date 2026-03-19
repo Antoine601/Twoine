@@ -19,8 +19,8 @@ const app = express();
 const PORT = process.env.WEB_PORT || 3847;
 
 // Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Servir les fichiers statiques du frontend
 app.use(express.static(path.join(__dirname, 'public')));
