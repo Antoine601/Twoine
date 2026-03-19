@@ -1784,7 +1784,11 @@ router.post('/ai/generate', async (req, res) => {
  */
 router.post('/export', async (req, res) => {
     try {
-        const { projects: exportProjects, databases: exportDatabases, apiKeys: exportApiKeys, users: exportUsers } = req.body;
+        // Augmenter le timeout à 10 minutes pour les gros exports
+        req.setTimeout(600000);
+        res.setTimeout(600000);
+
+        const { projects: exportProjects, databases: exportDatabases, apiKeys: exportApiKeys, users: exportUsers, includeProjectFiles } = req.body;
         const exportData = {};
 
         // Exporter les projets avec leurs fichiers
@@ -1793,29 +1797,53 @@ router.post('/export', async (req, res) => {
             exportData.projects = [];
             
             for (const project of projectsList) {
+                logger.info(`Export: Traitement du projet ${project.name}...`);
                 const config = projects.loadProjectConfig(project.name);
                 const projectData = {
                     name: project.name,
                     sftpUser: project.sftpUser,
                     createdAt: project.createdAt,
                     config: config,
-                    files: null
+                    files: null,
+                    filesSkipped: false
                 };
 
-                // Lire les fichiers du projet (sites/)
-                try {
-                    const projectPath = `/var/www/${project.name}/sites`;
-                    if (fs.existsSync(projectPath)) {
-                        const { execSync } = await import('child_process');
-                        // Créer une archive tar.gz en base64
-                        const archivePath = `/tmp/twoine-export-${project.name}-${Date.now()}.tar.gz`;
-                        execSync(`tar -czf ${archivePath} -C ${projectPath} .`);
-                        const archiveBuffer = fs.readFileSync(archivePath);
-                        projectData.files = archiveBuffer.toString('base64');
-                        fs.unlinkSync(archivePath); // Nettoyer
+                // Lire les fichiers du projet (sites/) seulement si demandé
+                if (includeProjectFiles) {
+                    try {
+                        const projectPath = `/var/www/${project.name}/sites`;
+                        if (fs.existsSync(projectPath)) {
+                            // Vérifier la taille du dossier avant compression
+                            const { execSync } = await import('child_process');
+                            const sizeOutput = execSync(`du -sb ${projectPath} 2>/dev/null || echo "0"`, { encoding: 'utf8' });
+                            const sizeBytes = parseInt(sizeOutput.split('\t')[0]) || 0;
+                            const sizeMB = sizeBytes / (1024 * 1024);
+                            
+                            logger.info(`Export: Taille du projet ${project.name}: ${sizeMB.toFixed(2)} MB`);
+                            
+                            // Limiter à 100MB par projet pour éviter les timeouts
+                            if (sizeMB > 100) {
+                                logger.warn(`Export: Projet ${project.name} trop volumineux (${sizeMB.toFixed(2)} MB), fichiers ignorés`);
+                                projectData.filesSkipped = true;
+                                projectData.filesSkippedReason = `Projet trop volumineux (${sizeMB.toFixed(2)} MB > 100 MB)`;
+                            } else {
+                                // Créer une archive tar.gz en base64
+                                const archivePath = `/tmp/twoine-export-${project.name}-${Date.now()}.tar.gz`;
+                                logger.info(`Export: Compression du projet ${project.name}...`);
+                                execSync(`tar -czf ${archivePath} -C ${projectPath} .`, { timeout: 120000 }); // 2 min max par archive
+                                const archiveBuffer = fs.readFileSync(archivePath);
+                                projectData.files = archiveBuffer.toString('base64');
+                                fs.unlinkSync(archivePath); // Nettoyer
+                                logger.info(`Export: Projet ${project.name} compressé avec succès`);
+                            }
+                        }
+                    } catch (error) {
+                        logger.error(`Erreur export fichiers projet ${project.name}: ${error.message}`);
+                        projectData.filesSkipped = true;
+                        projectData.filesSkippedReason = error.message;
                     }
-                } catch (error) {
-                    logger.error(`Erreur export fichiers projet ${project.name}: ${error.message}`);
+                } else {
+                    logger.info(`Export: Fichiers du projet ${project.name} ignorés (includeProjectFiles=false)`);
                 }
 
                 exportData.projects.push(projectData);

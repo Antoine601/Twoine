@@ -237,7 +237,8 @@
                 projects: true,
                 databases: true,
                 apiKeys: true,
-                users: currentUser?.role === 'admin'
+                users: currentUser?.role === 'admin',
+                includeProjectFiles: false
             });
 
             const handleToggle = (key) => {
@@ -293,6 +294,24 @@
                                     <span className="text-sm font-medium text-gray-700">Projets</span>
                                 </div>
                             </label>
+
+                            {selectedData.projects && (
+                                <label className="flex items-center gap-3 p-3 ml-6 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors bg-gray-50">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedData.includeProjectFiles}
+                                        onChange={() => handleToggle('includeProjectFiles')}
+                                        className="w-4 h-4 text-primary-600 rounded focus:ring-2 focus:ring-primary-500"
+                                    />
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-2">
+                                            <Icon name="file" size={16} className="text-gray-500" />
+                                            <span className="text-sm font-medium text-gray-700">Inclure les fichiers des projets</span>
+                                        </div>
+                                        <p className="text-xs text-gray-500 mt-1">⚠️ Peut être très lent pour les gros projets (timeout possible)</p>
+                                    </div>
+                                </label>
+                            )}
 
                             <label className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors">
                                 <input
