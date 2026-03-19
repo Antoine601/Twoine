@@ -78,6 +78,14 @@
         const api = {
             async get(url) {
                 const res = await fetch(url);
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(`Erreur HTTP ${res.status}: ${text.substring(0, 100)}`);
+                }
+                const contentType = res.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('La réponse du serveur n\'est pas au format JSON');
+                }
                 return res.json();
             },
             async post(url, data = {}) {
@@ -86,6 +94,14 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
                 });
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(`Erreur HTTP ${res.status}: ${text.substring(0, 100)}`);
+                }
+                const contentType = res.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('La réponse du serveur n\'est pas au format JSON');
+                }
                 return res.json();
             },
             async put(url, data = {}) {
@@ -94,10 +110,26 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
                 });
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(`Erreur HTTP ${res.status}: ${text.substring(0, 100)}`);
+                }
+                const contentType = res.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('La réponse du serveur n\'est pas au format JSON');
+                }
                 return res.json();
             },
             async del(url) {
                 const res = await fetch(url, { method: 'DELETE' });
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(`Erreur HTTP ${res.status}: ${text.substring(0, 100)}`);
+                }
+                const contentType = res.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('La réponse du serveur n\'est pas au format JSON');
+                }
                 return res.json();
             }
         };
