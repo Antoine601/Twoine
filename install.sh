@@ -140,13 +140,13 @@ else
         MONGODB_VERSION="4.4"
         
         # Installation des dépendances nécessaires
-        apt-get install -y gnupg wget ca-certificates
+        apt-get install -y gnupg wget ca-certificates libssl1.1 || apt-get install -y gnupg wget ca-certificates libssl3
         
         # Télécharger et ajouter la clé GPG MongoDB 4.4
-        wget -qO - https://www.mongodb.org/static/pgp/server-4.4.asc | apt-key add -
+        wget -qO - https://www.mongodb.org/static/pgp/server-4.4.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-4.4.gpg
         
-        # Ajouter le dépôt MongoDB 4.4
-        echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu $(lsb_release -cs)/mongodb-org/4.4 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-4.4.list
+        # Ajouter le dépôt MongoDB 4.4 (utilise focal car jammy n'est pas supporté par MongoDB 4.4)
+        echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-4.4.gpg ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/4.4 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-4.4.list
         
         # Mettre à jour les paquets
         apt-get update -y
