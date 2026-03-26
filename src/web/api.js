@@ -1856,24 +1856,60 @@ router.post('/export', async (req, res) => {
             exportData.databases = [];
 
             for (const db of allDatabases) {
+                logger.info(`Export: Traitement de la base de données ${db.name} (${db.type})...`);
+                
                 const dbData = {
                     id: db.id,
                     name: db.name,
                     type: db.type,
-                    config: db.config,
-                    assignedProjects: db.assignedProjects,
+                    config: null,
+                    assignedProjects: db.assignedProjects || [],
                     data: null
                 };
 
+                // Construire l'objet config selon le type de BDD
+                if (db.type === 'mysql') {
+                    dbData.config = {
+                        host: db.host,
+                        port: db.port,
+                        user: db.username,
+                        password: db.password,
+                        database: db.name
+                    };
+                } else if (db.type === 'mongodb') {
+                    // Construire l'URI MongoDB
+                    const auth = db.username && db.password 
+                        ? `${db.username}:${encodeURIComponent(db.password)}@` 
+                        : '';
+                    const authDb = db.authDatabase ? `?authSource=${db.authDatabase}` : '';
+                    dbData.config = {
+                        uri: `mongodb://${auth}${db.host}:${db.port}/${db.name}${authDb}`,
+                        host: db.host,
+                        port: db.port,
+                        username: db.username,
+                        password: db.password,
+                        authDatabase: db.authDatabase
+                    };
+                } else if (db.type === 'postgresql') {
+                    dbData.config = {
+                        host: db.host,
+                        port: db.port,
+                        user: db.username,
+                        password: db.password,
+                        database: db.name
+                    };
+                }
+
                 // Exporter les données selon le type
                 try {
-                    if (db.type === 'mysql' && db.config && db.config.host) {
+                    if (db.type === 'mysql' && db.host) {
+                        logger.info(`Export: Connexion à MySQL ${db.name}...`);
                         const connection = await mysql.createConnection({
-                            host: db.config.host,
-                            port: db.config.port,
-                            user: db.config.user,
-                            password: db.config.password,
-                            database: db.config.database
+                            host: db.host,
+                            port: db.port,
+                            user: db.username,
+                            password: db.password,
+                            database: db.name
                         });
 
                         // Obtenir toutes les tables
@@ -1882,54 +1918,69 @@ router.post('/export', async (req, res) => {
 
                         for (const tableRow of tables) {
                             const tableName = Object.values(tableRow)[0];
+                            logger.info(`Export: Lecture de la table ${tableName}...`);
                             const [rows] = await connection.query(`SELECT * FROM \`${tableName}\``);
                             tableData[tableName] = rows;
                         }
 
                         dbData.data = tableData;
                         await connection.end();
-                    } else if (db.type === 'mongodb' && db.config && db.config.uri) {
-                        const client = new MongoClient(db.config.uri);
+                        logger.success(`Export: Base MySQL ${db.name} exportée (${Object.keys(tableData).length} tables)`);
+                    } else if (db.type === 'mongodb' && db.host) {
+                        logger.info(`Export: Connexion à MongoDB ${db.name}...`);
+                        const auth = db.username && db.password 
+                            ? `${db.username}:${encodeURIComponent(db.password)}@` 
+                            : '';
+                        const authDb = db.authDatabase ? `?authSource=${db.authDatabase}` : '';
+                        const uri = `mongodb://${auth}${db.host}:${db.port}/${db.name}${authDb}`;
+                        
+                        const client = new MongoClient(uri);
                         await client.connect();
-                        const database = client.db();
+                        const database = client.db(db.name);
                         const collections = await database.listCollections().toArray();
                         const collectionData = {};
 
                         for (const coll of collections) {
+                            logger.info(`Export: Lecture de la collection ${coll.name}...`);
                             const data = await database.collection(coll.name).find({}).toArray();
                             collectionData[coll.name] = data;
                         }
 
                         dbData.data = collectionData;
                         await client.close();
-                    } else if (db.type === 'postgresql' && db.config && db.config.host) {
+                        logger.success(`Export: Base MongoDB ${db.name} exportée (${Object.keys(collectionData).length} collections)`);
+                    } else if (db.type === 'postgresql' && db.host) {
+                        logger.info(`Export: Connexion à PostgreSQL ${db.name}...`);
                         const pool = new Pool({
-                            host: db.config.host,
-                            port: db.config.port,
-                            user: db.config.user,
-                            password: db.config.password,
-                            database: db.config.database
+                            host: db.host,
+                            port: db.port,
+                            user: db.username,
+                            password: db.password,
+                            database: db.name
                         });
 
                         // Obtenir toutes les tables
                         const tablesResult = await pool.query(`
                             SELECT table_name 
                             FROM information_schema.tables 
-                            WHERE table_schema = 'public'
+                            WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
                         `);
                         const tableData = {};
 
                         for (const row of tablesResult.rows) {
                             const tableName = row.table_name;
+                            logger.info(`Export: Lecture de la table ${tableName}...`);
                             const dataResult = await pool.query(`SELECT * FROM "${tableName}"`);
                             tableData[tableName] = dataResult.rows;
                         }
 
                         dbData.data = tableData;
                         await pool.end();
+                        logger.success(`Export: Base PostgreSQL ${db.name} exportée (${Object.keys(tableData).length} tables)`);
                     }
                 } catch (error) {
                     logger.error(`Erreur export données BDD ${db.name}: ${error.message}`);
+                    dbData.dataError = error.message;
                 }
 
                 exportData.databases.push(dbData);
@@ -2035,12 +2086,35 @@ router.post('/import', async (req, res) => {
                     const existing = databases.getDatabaseById(db.id);
                     if (!existing) {
                         // Créer la base de données selon le type
-                        if (db.type === 'mysql') {
-                            databases.createMySQLDatabase(db.name, db.config.host, db.config.port, db.config.user, db.config.password, db.config.database);
-                        } else if (db.type === 'mongodb') {
-                            databases.createMongoDatabase(db.name, db.config.uri);
-                        } else if (db.type === 'postgresql') {
-                            databases.createPostgreSQLDatabase(db.name, db.config.host, db.config.port, db.config.user, db.config.password, db.config.database);
+                        let newDb;
+                        if (db.type === 'mysql' && db.config) {
+                            newDb = await databases.createMySQLDatabase({
+                                name: db.name,
+                                host: db.config.host,
+                                port: db.config.port,
+                                username: db.config.user,
+                                password: db.config.password,
+                                projectName: null
+                            });
+                        } else if (db.type === 'mongodb' && db.config) {
+                            newDb = await databases.createMongoDatabase({
+                                name: db.name,
+                                host: db.config.host,
+                                port: db.config.port,
+                                username: db.config.username || '',
+                                password: db.config.password || '',
+                                authDatabase: db.config.authDatabase || 'admin',
+                                projectName: null
+                            });
+                        } else if (db.type === 'postgresql' && db.config) {
+                            newDb = await databases.createPostgreSQLDatabase({
+                                name: db.name,
+                                host: db.config.host,
+                                port: db.config.port,
+                                username: db.config.user,
+                                password: db.config.password,
+                                projectName: null
+                            });
                         }
                         
                         // Restaurer les données si présentes
@@ -2111,10 +2185,14 @@ router.post('/import', async (req, res) => {
                         }
                         
                         // Assigner aux projets si nécessaire
-                        if (db.assignedProjects && Array.isArray(db.assignedProjects)) {
+                        if (newDb && db.assignedProjects && Array.isArray(db.assignedProjects)) {
                             for (const projectName of db.assignedProjects) {
                                 try {
-                                    databases.assignDatabaseToProject(db.id, projectName);
+                                    if (projects.projectExists(projectName)) {
+                                        databases.assignDatabaseToProject(newDb.id, projectName);
+                                    } else {
+                                        logger.warn(`Projet ${projectName} n'existe pas, assignation ignorée`);
+                                    }
                                 } catch (e) {
                                     logger.error(`Erreur assignation BDD ${db.name} au projet ${projectName}: ${e.message}`);
                                 }
@@ -2164,10 +2242,36 @@ router.post('/import', async (req, res) => {
                         continue;
                     }
                     
-                    const existing = users.getUser(user.username);
+                    // Vérifier si l'utilisateur existe déjà
+                    const allUsers = users.listUsers();
+                    const existing = allUsers.find(u => u.username === user.username);
+                    
                     if (!existing) {
                         // Créer avec un mot de passe par défaut
-                        users.createUser(user.username, 'changeme123', user.role, user.projects || []);
+                        const newUser = users.createUser(
+                            user.username,
+                            'changeme123',
+                            user.role || 'user',
+                            true, // mustChangePassword
+                            user.firstName || '',
+                            user.lastName || ''
+                        );
+                        
+                        // Assigner les projets
+                        if (user.projects && Array.isArray(user.projects)) {
+                            for (const projectName of user.projects) {
+                                try {
+                                    if (projects.projectExists(projectName)) {
+                                        users.assignProjectToUser(newUser.id, projectName);
+                                    } else {
+                                        logger.warn(`Projet ${projectName} n'existe pas, assignation ignorée`);
+                                    }
+                                } catch (e) {
+                                    logger.error(`Erreur assignation projet ${projectName} à ${user.username}: ${e.message}`);
+                                }
+                            }
+                        }
+                        
                         results.users.success++;
                     } else {
                         results.users.failed++;
