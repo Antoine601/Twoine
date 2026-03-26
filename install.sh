@@ -106,18 +106,83 @@ echo -e "${GREEN}✔ PHP $(php --version | head -n 1 | cut -d' ' -f2) installé$
 echo -e "${CYAN}[7/12]${NC} Installation de MongoDB..."
 
 if command -v mongod &> /dev/null; then
-    echo -e "${GREEN}✔ MongoDB $(mongod --version | grep 'db version' | cut -d' ' -f3) détecté${NC}"
+    MONGO_VERSION=$(mongod --version 2>/dev/null | grep 'db version' | cut -d' ' -f3 | cut -d'v' -f2)
+    echo -e "${GREEN}✔ MongoDB v${MONGO_VERSION} détecté${NC}"
 else
-    echo "Installation de MongoDB..."
-    curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg
-    echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu $(lsb_release -cs)/mongodb-org/7.0 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-7.0.list
-    apt-get update -y
-    apt-get install -y mongodb-org
-    systemctl enable mongod
-    systemctl start mongod
+    echo "Détection du support AVX du processeur..."
+    
+    # Vérifier si le CPU supporte AVX
+    if grep -q avx /proc/cpuinfo; then
+        echo -e "${GREEN}✔ Support AVX détecté${NC}"
+        echo "Installation de MongoDB 7.0 (version moderne)..."
+        
+        MONGODB_VERSION="7.0"
+        
+        # Installation des dépendances nécessaires
+        apt-get install -y gnupg wget ca-certificates
+        
+        # Télécharger et ajouter la clé GPG MongoDB 7.0
+        curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg
+        
+        # Ajouter le dépôt MongoDB 7.0
+        echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu $(lsb_release -cs)/mongodb-org/7.0 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+        
+        # Mettre à jour les paquets
+        apt-get update -y
+        
+        # Installer MongoDB 7.0
+        apt-get install -y mongodb-org
+        
+    else
+        echo -e "${YELLOW}⚠ Support AVX non détecté${NC}"
+        echo "Installation de MongoDB 4.4 (compatible sans AVX)..."
+        
+        MONGODB_VERSION="4.4"
+        
+        # Installation des dépendances nécessaires
+        apt-get install -y gnupg wget ca-certificates
+        
+        # Télécharger et ajouter la clé GPG MongoDB 4.4
+        wget -qO - https://www.mongodb.org/static/pgp/server-4.4.asc | apt-key add -
+        
+        # Ajouter le dépôt MongoDB 4.4
+        echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu $(lsb_release -cs)/mongodb-org/4.4 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-4.4.list
+        
+        # Mettre à jour les paquets
+        apt-get update -y
+        
+        # Installer MongoDB 4.4
+        apt-get install -y mongodb-org
+    fi
+    
+    # Vérifier que l'installation s'est bien déroulée
+    if command -v mongod &> /dev/null; then
+        echo -e "${GREEN}✔ MongoDB ${MONGODB_VERSION} installé avec succès${NC}"
+        
+        # Activer MongoDB au démarrage
+        systemctl enable mongod
+        
+        # Démarrer MongoDB
+        systemctl start mongod
+        
+        # Attendre que MongoDB soit prêt
+        sleep 3
+        
+        # Vérifier que MongoDB est bien démarré
+        if systemctl is-active --quiet mongod; then
+            echo -e "${GREEN}✔ MongoDB démarré et actif${NC}"
+        else
+            echo -e "${YELLOW}⚠ MongoDB installé mais le service n'a pas démarré automatiquement${NC}"
+            echo "  Vous pouvez le démarrer manuellement avec: sudo systemctl start mongod"
+        fi
+    else
+        echo -e "${RED}✖ Erreur lors de l'installation de MongoDB${NC}"
+        echo "  Veuillez vérifier les logs et réessayer"
+        exit 1
+    fi
 fi
 
-echo -e "${GREEN}✔ MongoDB installé et démarré${NC}"
+echo -e "${GREEN}✔ MongoDB configuré et opérationnel${NC}"
 
 # Vérifier/Installer PostgreSQL
 echo -e "${CYAN}[8/12]${NC} Installation de PostgreSQL..."
