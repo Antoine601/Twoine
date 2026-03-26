@@ -140,7 +140,25 @@ else
         MONGODB_VERSION="4.4"
         
         # Installation des dépendances nécessaires
-        apt-get install -y gnupg wget ca-certificates libssl1.1 || apt-get install -y gnupg wget ca-certificates libssl3
+        apt-get install -y gnupg wget ca-certificates
+        
+        # Sur Ubuntu 22.04, libssl1.1 n'est pas disponible, il faut l'installer manuellement
+        if ! dpkg -l | grep -q libssl1.1; then
+            echo "Installation de libssl1.1 (requis pour MongoDB 4.4)..."
+            
+            # Télécharger libssl1.1 depuis les dépôts Ubuntu 20.04
+            cd /tmp
+            wget http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2_amd64.deb
+            
+            # Installer le paquet
+            dpkg -i libssl1.1_1.1.1f-1ubuntu2_amd64.deb
+            
+            # Nettoyer
+            rm -f libssl1.1_1.1.1f-1ubuntu2_amd64.deb
+            cd - > /dev/null
+            
+            echo -e "${GREEN}✔ libssl1.1 installé${NC}"
+        fi
         
         # Télécharger et ajouter la clé GPG MongoDB 4.4
         wget -qO - https://www.mongodb.org/static/pgp/server-4.4.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-4.4.gpg
