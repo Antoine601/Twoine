@@ -5140,11 +5140,23 @@
             const [loading, setLoading] = useState(true);
             const [showCreateModal, setShowCreateModal] = useState(false);
             const [showEditModal, setShowEditModal] = useState(false);
+            const [showEditConfigModal, setShowEditConfigModal] = useState(false);
             const [showGlobalEditModal, setShowGlobalEditModal] = useState(false);
             const [selectedConfig, setSelectedConfig] = useState(null);
             const [editContent, setEditContent] = useState('');
             const [globalEditContent, setGlobalEditContent] = useState('');
             const [form, setForm] = useState({
+                domain: '',
+                port: '',
+                description: '',
+                useSSL: false,
+                sslCertPath: '',
+                sslKeyPath: '',
+                redirectHTTP: false,
+                targetHost: 'localhost',
+                targetProtocol: 'http'
+            });
+            const [editForm, setEditForm] = useState({
                 domain: '',
                 port: '',
                 description: '',
@@ -5219,6 +5231,39 @@
                     });
                     if (result.success) {
                         showToast(`Configuration ${!config.enabled ? 'activée' : 'désactivée'}`, 'success');
+                        loadConfigs();
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
+            }
+
+            async function handleEditConfig(config) {
+                setSelectedConfig(config);
+                setEditForm({
+                    domain: config.domain || '',
+                    port: config.port || '',
+                    description: config.description || '',
+                    useSSL: config.useSSL || false,
+                    sslCertPath: config.sslCertPath || '',
+                    sslKeyPath: config.sslKeyPath || '',
+                    redirectHTTP: config.redirectHTTP || false,
+                    targetHost: config.targetHost || 'localhost',
+                    targetProtocol: config.targetProtocol || 'http'
+                });
+                setShowEditConfigModal(true);
+            }
+
+            async function handleSaveEditConfig(e) {
+                e.preventDefault();
+                try {
+                    const result = await api.put(`/api/nginx/configs/${selectedConfig.id}`, editForm);
+                    if (result.success) {
+                        showToast('Configuration mise à jour avec succès', 'success');
+                        setShowEditConfigModal(false);
+                        setSelectedConfig(null);
                         loadConfigs();
                     } else {
                         showToast(result.error, 'error');
@@ -5397,9 +5442,16 @@
                                                 <Icon name={config.enabled ? 'toggle-right' : 'toggle-left'} size={18} />
                                             </button>
                                             <button
+                                                onClick={() => handleEditConfig(config)}
+                                                className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                                                title="Éditer la configuration"
+                                            >
+                                                <Icon name="settings" size={18} />
+                                            </button>
+                                            <button
                                                 onClick={() => handleEdit(config)}
                                                 className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                                title="Éditer le fichier"
+                                                title="Éditer le fichier brut"
                                             >
                                                 <Icon name="file-text" size={18} />
                                             </button>
@@ -5594,12 +5646,190 @@
                         </div>
                     )}
 
-                    {/* Edit Modal */}
+                    {/* Edit Config Modal */}
+                    {showEditConfigModal && selectedConfig && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                                <div className="p-6 border-b border-gray-200">
+                                    <h2 className="text-xl font-bold text-gray-900">Éditer la configuration</h2>
+                                    <p className="text-sm text-gray-600 mt-1">{selectedConfig.domain}</p>
+                                </div>
+                                <form onSubmit={handleSaveEditConfig} className="p-6 space-y-6">
+                                    {/* Configuration de base */}
+                                    <div className="space-y-4">
+                                        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                                            <Icon name="settings" size={16} />
+                                            Configuration de base
+                                        </h3>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Domaine *
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={editForm.domain}
+                                                    onChange={(e) => setEditForm({...editForm, domain: e.target.value})}
+                                                    placeholder="example.com"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                                    required
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Port cible *
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    value={editForm.port}
+                                                    onChange={(e) => setEditForm({...editForm, port: e.target.value})}
+                                                    placeholder="3000"
+                                                    min="1"
+                                                    max="65535"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                                    required
+                                                />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Description
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={editForm.description}
+                                                onChange={(e) => setEditForm({...editForm, description: e.target.value})}
+                                                placeholder="Mon application"
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Configuration cible */}
+                                    <div className="space-y-4 pt-4 border-t border-gray-200">
+                                        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                                            <Icon name="target" size={16} />
+                                            Serveur cible
+                                        </h3>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Hôte cible
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={editForm.targetHost}
+                                                    onChange={(e) => setEditForm({...editForm, targetHost: e.target.value})}
+                                                    placeholder="localhost ou 192.168.1.50"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                                />
+                                                <p className="text-xs text-gray-500 mt-1">Par défaut: localhost</p>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Protocole cible
+                                                </label>
+                                                <select
+                                                    value={editForm.targetProtocol}
+                                                    onChange={(e) => setEditForm({...editForm, targetProtocol: e.target.value})}
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                                >
+                                                    <option value="http">HTTP</option>
+                                                    <option value="https">HTTPS</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Configuration SSL */}
+                                    <div className="space-y-4 pt-4 border-t border-gray-200">
+                                        <div className="flex items-center justify-between">
+                                            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                                                <Icon name="shield" size={16} />
+                                                SSL/HTTPS
+                                            </h3>
+                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={editForm.useSSL}
+                                                    onChange={(e) => setEditForm({...editForm, useSSL: e.target.checked})}
+                                                    className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                                                />
+                                                <span className="text-sm text-gray-700">Activer SSL</span>
+                                            </label>
+                                        </div>
+                                        {editForm.useSSL && (
+                                            <div className="space-y-4 pl-4 border-l-2 border-primary-200">
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                        Certificat SSL *
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        value={editForm.sslCertPath}
+                                                        onChange={(e) => setEditForm({...editForm, sslCertPath: e.target.value})}
+                                                        placeholder="/etc/ssl/certs/example.com-crt.pem"
+                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-sm"
+                                                        required={editForm.useSSL}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                        Clé privée *
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        value={editForm.sslKeyPath}
+                                                        onChange={(e) => setEditForm({...editForm, sslKeyPath: e.target.value})}
+                                                        placeholder="/etc/ssl/private/example.com-key.pem"
+                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-sm"
+                                                        required={editForm.useSSL}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="flex items-center gap-2 cursor-pointer">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={editForm.redirectHTTP}
+                                                            onChange={(e) => setEditForm({...editForm, redirectHTTP: e.target.checked})}
+                                                            className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                                                        />
+                                                        <span className="text-sm text-gray-700">Rediriger HTTP vers HTTPS</span>
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="flex gap-3 pt-4">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setShowEditConfigModal(false);
+                                                setSelectedConfig(null);
+                                            }}
+                                            className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                                        >
+                                            Annuler
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                                        >
+                                            Mettre à jour
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Edit Raw File Modal */}
                     {showEditModal && selectedConfig && (
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
                             <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
                                 <div className="p-6 border-b border-gray-200">
-                                    <h2 className="text-xl font-bold text-gray-900">Éditer la configuration</h2>
+                                    <h2 className="text-xl font-bold text-gray-900">Éditer le fichier brut</h2>
                                     <p className="text-sm text-gray-600 mt-1">{selectedConfig.domain}</p>
                                 </div>
                                 <form onSubmit={handleSaveEdit} className="p-6 space-y-4">
