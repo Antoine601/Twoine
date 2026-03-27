@@ -15,6 +15,7 @@ import databases from '../modules/databases.js';
 import aiModels from '../modules/aiModels.js';
 import apiKeys from '../modules/apiKeys.js';
 import nginx from '../modules/nginx.js';
+import ssl from '../modules/ssl.js';
 import multer from 'multer';
 import path from 'path';
 import https from 'https';
@@ -2482,6 +2483,155 @@ router.put('/nginx/global-config', async (req, res) => {
         
         await nginx.updateGlobalConfig(content);
         res.json({ success: true, message: 'Configuration globale mise à jour' });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * PUT /api/nginx/configs/:id - Mettre à jour une configuration Nginx
+ */
+router.put('/nginx/configs/:id', async (req, res) => {
+    try {
+        const {
+            domain,
+            port,
+            description,
+            useSSL,
+            sslCertPath,
+            sslKeyPath,
+            redirectHTTP,
+            targetHost,
+            targetProtocol
+        } = req.body;
+
+        const options = {
+            useSSL: useSSL || false,
+            sslCertPath: sslCertPath || '',
+            sslKeyPath: sslKeyPath || '',
+            redirectHTTP: redirectHTTP || false,
+            targetHost: targetHost || 'localhost',
+            targetProtocol: targetProtocol || 'http'
+        };
+
+        const config = await nginx.updateNginxConfig(req.params.id, domain, port, description, options);
+        res.json({ success: true, data: config });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// SSL
+// ============================================
+
+/**
+ * GET /api/ssl/certificates - Liste tous les certificats SSL
+ */
+router.get('/ssl/certificates', (req, res) => {
+    try {
+        const certificates = ssl.getAllCertificates();
+        res.json({ success: true, data: certificates });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/ssl/certificates/:id - Détails d'un certificat
+ */
+router.get('/ssl/certificates/:id', (req, res) => {
+    try {
+        const certificate = ssl.getCertificateById(req.params.id);
+        if (!certificate) {
+            return res.status(404).json({ success: false, error: 'Certificat non trouvé' });
+        }
+        res.json({ success: true, data: certificate });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/ssl/certificates/:id/details - Détails complets d'un certificat avec contenu
+ */
+router.get('/ssl/certificates/:id/details', (req, res) => {
+    try {
+        const details = ssl.getCertificateDetails(req.params.id);
+        res.json({ success: true, data: details });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/ssl/certificates/:id/download - Télécharger un certificat ou une clé
+ */
+router.get('/ssl/certificates/:id/download', (req, res) => {
+    try {
+        const { type } = req.query;
+        if (!type || !['cert', 'key'].includes(type)) {
+            return res.status(400).json({ success: false, error: 'Type invalide (cert ou key)' });
+        }
+
+        const content = ssl.downloadCertificate(req.params.id, type);
+        res.json({ success: true, data: content });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/ssl/certificates - Créer un certificat SSL auto-signé
+ */
+router.post('/ssl/certificates', (req, res) => {
+    try {
+        const {
+            domain,
+            country,
+            state,
+            city,
+            organization,
+            organizationalUnit,
+            email,
+            validityDays
+        } = req.body;
+
+        if (!domain) {
+            return res.status(400).json({ success: false, error: 'Domaine requis' });
+        }
+
+        const certificate = ssl.createCertificate({
+            domain,
+            country,
+            state,
+            city,
+            organization,
+            organizationalUnit,
+            email,
+            validityDays
+        });
+
+        res.json({ success: true, data: certificate });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * DELETE /api/ssl/certificates/:id - Supprimer un certificat SSL
+ */
+router.delete('/ssl/certificates/:id', (req, res) => {
+    try {
+        ssl.deleteCertificate(req.params.id);
+        res.json({ success: true, message: 'Certificat supprimé' });
     } catch (error) {
         logger.error(`API: ${error.message}`);
         res.status(400).json({ success: false, error: error.message });

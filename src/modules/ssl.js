@@ -1,0 +1,249 @@
+/**
+ * Module de gestion des certificats SSL auto-signés
+ */
+
+import fs from 'fs';
+import path from 'path';
+import { execSync } from 'child_process';
+import { v4 as uuidv4 } from 'uuid';
+import logger from '../utils/logger.js';
+
+const SSL_DIR = '/etc/ssl/twoine';
+const SSL_CERTS_DIR = path.join(SSL_DIR, 'certs');
+const SSL_KEYS_DIR = path.join(SSL_DIR, 'private');
+const SSL_DB_FILE = path.join(SSL_DIR, 'certificates.json');
+
+class SSLManager {
+    constructor() {
+        this.ensureDirectories();
+        this.loadDatabase();
+    }
+
+    ensureDirectories() {
+        try {
+            if (!fs.existsSync(SSL_DIR)) {
+                fs.mkdirSync(SSL_DIR, { recursive: true, mode: 0o755 });
+            }
+            if (!fs.existsSync(SSL_CERTS_DIR)) {
+                fs.mkdirSync(SSL_CERTS_DIR, { recursive: true, mode: 0o755 });
+            }
+            if (!fs.existsSync(SSL_KEYS_DIR)) {
+                fs.mkdirSync(SSL_KEYS_DIR, { recursive: true, mode: 0o700 });
+            }
+        } catch (error) {
+            logger.error(`Erreur lors de la création des dossiers SSL: ${error.message}`);
+            throw error;
+        }
+    }
+
+    loadDatabase() {
+        try {
+            if (fs.existsSync(SSL_DB_FILE)) {
+                const data = fs.readFileSync(SSL_DB_FILE, 'utf8');
+                this.certificates = JSON.parse(data);
+            } else {
+                this.certificates = [];
+                this.saveDatabase();
+            }
+        } catch (error) {
+            logger.error(`Erreur lors du chargement de la base SSL: ${error.message}`);
+            this.certificates = [];
+        }
+    }
+
+    saveDatabase() {
+        try {
+            fs.writeFileSync(SSL_DB_FILE, JSON.stringify(this.certificates, null, 2), { mode: 0o644 });
+        } catch (error) {
+            logger.error(`Erreur lors de la sauvegarde de la base SSL: ${error.message}`);
+            throw error;
+        }
+    }
+
+    getAllCertificates() {
+        return this.certificates.map(cert => ({
+            id: cert.id,
+            domain: cert.domain,
+            organization: cert.organization,
+            country: cert.country,
+            certPath: cert.certPath,
+            keyPath: cert.keyPath,
+            createdAt: cert.createdAt,
+            expiresAt: cert.expiresAt
+        }));
+    }
+
+    getCertificateById(id) {
+        return this.certificates.find(cert => cert.id === id);
+    }
+
+    createCertificate(options) {
+        const {
+            domain,
+            country = 'FR',
+            state = '',
+            city = '',
+            organization = '',
+            organizationalUnit = '',
+            email = '',
+            validityDays = 365
+        } = options;
+
+        if (!domain) {
+            throw new Error('Le domaine est requis');
+        }
+
+        const id = uuidv4();
+        const sanitizedDomain = domain.replace(/[^a-zA-Z0-9.-]/g, '_');
+        const certPath = path.join(SSL_CERTS_DIR, `${sanitizedDomain}.crt`);
+        const keyPath = path.join(SSL_KEYS_DIR, `${sanitizedDomain}.key`);
+
+        if (fs.existsSync(certPath) || fs.existsSync(keyPath)) {
+            throw new Error('Un certificat existe déjà pour ce domaine');
+        }
+
+        const subject = this.buildSubject({
+            country,
+            state,
+            city,
+            organization,
+            organizationalUnit,
+            email,
+            domain
+        });
+
+        try {
+            const command = `openssl req -x509 -newkey rsa:4096 -nodes -keyout "${keyPath}" -out "${certPath}" -days ${validityDays} -subj "${subject}"`;
+            
+            logger.info(`Génération du certificat SSL pour ${domain}...`);
+            execSync(command, { stdio: 'pipe' });
+
+            fs.chmodSync(keyPath, 0o600);
+            fs.chmodSync(certPath, 0o644);
+
+            const createdAt = new Date().toISOString();
+            const expiresAt = new Date(Date.now() + validityDays * 24 * 60 * 60 * 1000).toISOString();
+
+            const certificate = {
+                id,
+                domain,
+                country,
+                state,
+                city,
+                organization,
+                organizationalUnit,
+                email,
+                certPath,
+                keyPath,
+                validityDays,
+                createdAt,
+                expiresAt
+            };
+
+            this.certificates.push(certificate);
+            this.saveDatabase();
+
+            logger.info(`Certificat SSL créé avec succès pour ${domain}`);
+            return certificate;
+        } catch (error) {
+            if (fs.existsSync(certPath)) fs.unlinkSync(certPath);
+            if (fs.existsSync(keyPath)) fs.unlinkSync(keyPath);
+            
+            logger.error(`Erreur lors de la création du certificat: ${error.message}`);
+            throw new Error(`Impossible de créer le certificat: ${error.message}`);
+        }
+    }
+
+    buildSubject(options) {
+        const parts = [];
+        
+        if (options.country) parts.push(`C=${options.country}`);
+        if (options.state) parts.push(`ST=${options.state}`);
+        if (options.city) parts.push(`L=${options.city}`);
+        if (options.organization) parts.push(`O=${options.organization}`);
+        if (options.organizationalUnit) parts.push(`OU=${options.organizationalUnit}`);
+        if (options.domain) parts.push(`CN=${options.domain}`);
+        if (options.email) parts.push(`emailAddress=${options.email}`);
+
+        return '/' + parts.join('/');
+    }
+
+    deleteCertificate(id) {
+        const cert = this.getCertificateById(id);
+        if (!cert) {
+            throw new Error('Certificat non trouvé');
+        }
+
+        try {
+            if (fs.existsSync(cert.certPath)) {
+                fs.unlinkSync(cert.certPath);
+            }
+            if (fs.existsSync(cert.keyPath)) {
+                fs.unlinkSync(cert.keyPath);
+            }
+
+            this.certificates = this.certificates.filter(c => c.id !== id);
+            this.saveDatabase();
+
+            logger.info(`Certificat SSL supprimé: ${cert.domain}`);
+            return true;
+        } catch (error) {
+            logger.error(`Erreur lors de la suppression du certificat: ${error.message}`);
+            throw new Error(`Impossible de supprimer le certificat: ${error.message}`);
+        }
+    }
+
+    getCertificateDetails(id) {
+        const cert = this.getCertificateById(id);
+        if (!cert) {
+            throw new Error('Certificat non trouvé');
+        }
+
+        try {
+            let certContent = '';
+            if (fs.existsSync(cert.certPath)) {
+                certContent = fs.readFileSync(cert.certPath, 'utf8');
+            }
+
+            return {
+                ...cert,
+                certContent
+            };
+        } catch (error) {
+            logger.error(`Erreur lors de la lecture du certificat: ${error.message}`);
+            throw new Error(`Impossible de lire le certificat: ${error.message}`);
+        }
+    }
+
+    downloadCertificate(id, type) {
+        const cert = this.getCertificateById(id);
+        if (!cert) {
+            throw new Error('Certificat non trouvé');
+        }
+
+        const filePath = type === 'cert' ? cert.certPath : cert.keyPath;
+        
+        if (!fs.existsSync(filePath)) {
+            throw new Error('Fichier non trouvé');
+        }
+
+        try {
+            return fs.readFileSync(filePath, 'utf8');
+        } catch (error) {
+            logger.error(`Erreur lors de la lecture du fichier: ${error.message}`);
+            throw new Error(`Impossible de lire le fichier: ${error.message}`);
+        }
+    }
+
+    checkOpenSSL() {
+        try {
+            execSync('which openssl', { stdio: 'pipe' });
+            return true;
+        } catch (error) {
+            return false;
+        }
+    }
+}
+
+const sslManager = new SSLManager();
+export default sslManager;

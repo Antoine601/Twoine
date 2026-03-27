@@ -54,7 +54,7 @@ echo -e "${GREEN}✔ Paquets système mis à jour${NC}"
 
 # Installation des dépendances système
 echo -e "${CYAN}[3/12]${NC} Installation des dépendances système..."
-apt-get install -y curl wget gnupg2 ca-certificates lsb-release apt-transport-https software-properties-common build-essential git
+apt-get install -y curl wget gnupg2 ca-certificates lsb-release apt-transport-https software-properties-common build-essential git openssl
 echo -e "${GREEN}✔ Dépendances système installées${NC}"
 
 # Vérifier/Installer Node.js
@@ -256,7 +256,7 @@ ollama pull llama3.2 || echo -e "${YELLOW}⚠ Impossible d'installer llama3.2 au
 echo -e "${GREEN}✔ Ollama configuré${NC}"
 
 # Vérifier/Installer Nginx
-echo -e "${CYAN}[11/13]${NC} Installation de Nginx..."
+echo -e "${CYAN}[11/14]${NC} Installation de Nginx..."
 
 if command -v nginx &> /dev/null; then
     echo -e "${GREEN}✔ Nginx $(nginx -v 2>&1 | cut -d'/' -f2) détecté${NC}"
@@ -282,8 +282,19 @@ else
     echo "  Vous pouvez le démarrer manuellement avec: sudo systemctl start nginx"
 fi
 
+# Vérifier OpenSSL pour les certificats SSL
+echo "Vérification d'OpenSSL..."
+if command -v openssl &> /dev/null; then
+    OPENSSL_VERSION=$(openssl version | cut -d' ' -f2)
+    echo -e "${GREEN}✔ OpenSSL ${OPENSSL_VERSION} installé${NC}"
+else
+    echo -e "${YELLOW}⚠ OpenSSL non détecté, installation...${NC}"
+    apt-get install -y openssl
+    echo -e "${GREEN}✔ OpenSSL installé${NC}"
+fi
+
 # Copier les fichiers
-echo -e "${CYAN}[12/13]${NC} Installation de l'outil..."
+echo -e "${CYAN}[12/14]${NC} Installation de l'outil..."
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
@@ -306,7 +317,7 @@ npm install --production
 echo -e "${GREEN}✔ Dépendances Node.js installées${NC}"
 
 # Créer le lien symbolique
-echo -e "${CYAN}[13/13]${NC} Configuration finale..."
+echo -e "${CYAN}[13/14]${NC} Configuration finale..."
 
 chmod +x "$INSTALL_DIR/src/index.js"
 
@@ -322,7 +333,11 @@ echo -e "${GREEN}✔ Lien symbolique créé: /usr/local/bin/project-manager${NC}
 mkdir -p /etc/nodejs-project-manager
 mkdir -p /var/log/nodejs-project-manager
 mkdir -p /var/www
+mkdir -p /etc/ssl/twoine/certs
+mkdir -p /etc/ssl/twoine/private
+chmod 700 /etc/ssl/twoine/private
 
+echo -e "${CYAN}[14/14]${NC} Création des dossiers SSL..."
 echo -e "${GREEN}✔ Dossiers créés${NC}"
 
 # Configurer PM2 au démarrage
@@ -345,6 +360,7 @@ echo -e "  • PostgreSQL: $(systemctl is-active postgresql)"
 echo -e "  • PM2: $(pm2 --version)"
 echo -e "  • Ollama: $(systemctl is-active ollama 2>/dev/null || echo 'installé')"
 echo -e "  • Nginx: $(systemctl is-active nginx)"
+echo -e "  • OpenSSL: $(openssl version 2>&1 | cut -d' ' -f2)"
 echo ""
 echo -e "${CYAN}Pour lancer l'outil:${NC}"
 echo -e "  ${YELLOW}sudo project-manager${NC}"
