@@ -2674,7 +2674,7 @@ router.get('/ssl/templates/:id', (req, res) => {
 /**
  * POST /api/ssl/templates - Créer un template SSL
  */
-router.post('/api/ssl/templates', (req, res) => {
+router.post('/ssl/templates', (req, res) => {
     try {
         const {
             name,
