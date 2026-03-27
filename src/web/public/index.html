@@ -1632,24 +1632,103 @@
         // Add Service Modal
         // ============================================
         function AddServiceModal({ projectName, onClose, onSuccess, showToast }) {
-            const [form, setForm] = useState({ 
-                name: '', 
-                directory: '', 
-                command: '', 
-                description: '', 
+            const [form, setForm] = useState({
+                name: '',
+                directory: '',
+                command: '',
+                description: '',
                 setupCommands: '', 
                 runtime: 'nodejs', 
                 port: '8000',
                 createNginxConfig: false,
                 nginxDomain: '',
                 nginxUseSSL: false,
-                nginxSslCertPath: '',
-                nginxSslKeyPath: '',
+                nginxSslCertId: '',
+                nginxSslMode: 'select',
+                nginxSslTemplateId: '',
                 nginxRedirectHTTP: false,
                 nginxTargetHost: 'localhost',
                 nginxTargetProtocol: 'http'
             });
+            const [sslCertificates, setSslCertificates] = useState([]);
+            const [sslTemplates, setSslTemplates] = useState([]);
             const [loading, setLoading] = useState(false);
+            const [generatingCert, setGeneratingCert] = useState(false);
+
+            useEffect(() => {
+                if (form.createNginxConfig && form.nginxUseSSL) {
+                    loadSslData();
+                }
+            }, [form.createNginxConfig, form.nginxUseSSL]);
+
+            async function loadSslData() {
+                try {
+                    const [certsResult, templatesResult] = await Promise.all([
+                        api.get('/api/ssl/certificates'),
+                        api.get('/api/ssl/templates')
+                    ]);
+                    if (certsResult.success) setSslCertificates(certsResult.data);
+                    if (templatesResult.success) setSslTemplates(templatesResult.data);
+                } catch (error) {
+                    console.error('Erreur chargement SSL:', error);
+                }
+            }
+
+            async function handleGenerateCertificate() {
+                if (!form.nginxDomain) {
+                    showToast('Veuillez d\'abord renseigner le domaine', 'warning');
+                    return;
+                }
+                if (!form.nginxSslTemplateId) {
+                    showToast('Veuillez sélectionner un template', 'warning');
+                    return;
+                }
+
+                setGeneratingCert(true);
+                try {
+                    const template = sslTemplates.find(t => t.id === form.nginxSslTemplateId);
+                    const result = await api.post('/api/ssl/certificates', {
+                        domain: form.nginxDomain,
+                        country: template.country,
+                        state: template.state,
+                        city: template.city,
+                        organization: template.organization,
+                        organizationalUnit: template.organizationalUnit,
+                        email: template.email,
+                        validityDays: template.validityDays
+                    });
+                    
+                    if (result.success) {
+                        showToast('Certificat généré avec succès', 'success');
+                        await loadSslData();
+                        setForm({
+                            ...form,
+                            nginxSslCertId: result.data.id,
+                            nginxSslCertPath: result.data.certPath,
+                            nginxSslKeyPath: result.data.keyPath,
+                            nginxSslMode: 'select'
+                        });
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                } finally {
+                    setGeneratingCert(false);
+                }
+            }
+
+            function handleSslCertificateSelect(certId) {
+                const cert = sslCertificates.find(c => c.id === certId);
+                if (cert) {
+                    setForm({
+                        ...form,
+                        nginxSslCertId: certId,
+                        nginxSslCertPath: cert.certPath,
+                        nginxSslKeyPath: cert.keyPath
+                    });
+                }
+            }
 
             // Mettre à jour la commande par défaut selon le runtime
             const handleRuntimeChange = (runtime) => {
@@ -1854,33 +1933,105 @@
                                         </label>
                                     </div>
                                     {form.nginxUseSSL && (
-                                        <div className="space-y-2 pl-4">
-                                            <div>
-                                                <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                    Certificat SSL *
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    value={form.nginxSslCertPath}
-                                                    onChange={(e) => setForm({...form, nginxSslCertPath: e.target.value})}
-                                                    placeholder="/etc/ssl/certs/example.com-crt.pem"
-                                                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-xs font-mono"
-                                                    required={form.nginxUseSSL}
-                                                />
+                                        <div className="space-y-3 pl-4">
+                                            <div className="flex gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setForm({...form, nginxSslMode: 'select'})}
+                                                    className={`flex-1 px-3 py-2 text-xs rounded-lg transition-colors ${
+                                                        form.nginxSslMode === 'select'
+                                                            ? 'bg-primary-600 text-white'
+                                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                    }`}
+                                                >
+                                                    Sélectionner un certificat
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setForm({...form, nginxSslMode: 'generate'})}
+                                                    className={`flex-1 px-3 py-2 text-xs rounded-lg transition-colors ${
+                                                        form.nginxSslMode === 'generate'
+                                                            ? 'bg-primary-600 text-white'
+                                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                    }`}
+                                                >
+                                                    Générer automatiquement
+                                                </button>
                                             </div>
-                                            <div>
-                                                <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                    Clé privée *
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    value={form.nginxSslKeyPath}
-                                                    onChange={(e) => setForm({...form, nginxSslKeyPath: e.target.value})}
-                                                    placeholder="/etc/ssl/private/example.com-key.pem"
-                                                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-xs font-mono"
-                                                    required={form.nginxUseSSL}
-                                                />
-                                            </div>
+
+                                            {form.nginxSslMode === 'select' && (
+                                                <div>
+                                                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                                                        Certificat SSL *
+                                                    </label>
+                                                    <select
+                                                        value={form.nginxSslCertId}
+                                                        onChange={(e) => handleSslCertificateSelect(e.target.value)}
+                                                        className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-xs"
+                                                        required={form.nginxUseSSL && form.nginxSslMode === 'select'}
+                                                    >
+                                                        <option value="">-- Sélectionner un certificat --</option>
+                                                        {sslCertificates.map(cert => (
+                                                            <option key={cert.id} value={cert.id}>
+                                                                {cert.domain} ({cert.organization || 'Sans organisation'})
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    {form.nginxSslCertId && (
+                                                        <div className="mt-2 p-2 bg-gray-50 rounded text-xs text-gray-600">
+                                                            <div className="font-mono truncate">Cert: {form.nginxSslCertPath}</div>
+                                                            <div className="font-mono truncate">Key: {form.nginxSslKeyPath}</div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {form.nginxSslMode === 'generate' && (
+                                                <div className="space-y-2">
+                                                    <div>
+                                                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                                                            Template *
+                                                        </label>
+                                                        <select
+                                                            value={form.nginxSslTemplateId}
+                                                            onChange={(e) => setForm({...form, nginxSslTemplateId: e.target.value})}
+                                                            className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-xs"
+                                                            required={form.nginxUseSSL && form.nginxSslMode === 'generate'}
+                                                        >
+                                                            <option value="">-- Sélectionner un template --</option>
+                                                            {sslTemplates.map(template => (
+                                                                <option key={template.id} value={template.id}>
+                                                                    {template.name} ({template.organization || template.country})
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleGenerateCertificate}
+                                                        disabled={!form.nginxDomain || !form.nginxSslTemplateId || generatingCert}
+                                                        className="w-full px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                                    >
+                                                        {generatingCert ? (
+                                                            <>
+                                                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
+                                                                Génération...
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Icon name="zap" size={12} />
+                                                                Générer le certificat pour {form.nginxDomain || '[domaine]'}
+                                                            </>
+                                                        )}
+                                                    </button>
+                                                    {form.nginxSslCertPath && form.nginxSslMode === 'generate' && (
+                                                        <div className="p-2 bg-green-50 border border-green-200 rounded text-xs text-green-700">
+                                                            ✓ Certificat généré avec succès
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
                                             <div>
                                                 <label className="flex items-center gap-2 cursor-pointer">
                                                     <input
@@ -5153,6 +5304,9 @@
                 useSSL: false,
                 sslCertPath: '',
                 sslKeyPath: '',
+                sslCertId: '',
+                sslMode: 'select',
+                sslTemplateId: '',
                 redirectHTTP: false,
                 targetHost: 'localhost',
                 targetProtocol: 'http'
@@ -5164,10 +5318,16 @@
                 useSSL: false,
                 sslCertPath: '',
                 sslKeyPath: '',
+                sslCertId: '',
+                sslMode: 'select',
+                sslTemplateId: '',
                 redirectHTTP: false,
                 targetHost: 'localhost',
                 targetProtocol: 'http'
             });
+            const [sslCertificates, setSslCertificates] = useState([]);
+            const [sslTemplates, setSslTemplates] = useState([]);
+            const [generatingCert, setGeneratingCert] = useState(false);
 
             const loadConfigs = useCallback(async () => {
                 setLoading(true);
@@ -5181,6 +5341,87 @@
             }, [showToast]);
 
             useEffect(() => { loadConfigs(); }, [loadConfigs]);
+
+            useEffect(() => {
+                if ((showCreateModal || showEditConfigModal) && (form.useSSL || editForm.useSSL)) {
+                    loadSslData();
+                }
+            }, [showCreateModal, showEditConfigModal, form.useSSL, editForm.useSSL]);
+
+            async function loadSslData() {
+                try {
+                    const [certsResult, templatesResult] = await Promise.all([
+                        api.get('/api/ssl/certificates'),
+                        api.get('/api/ssl/templates')
+                    ]);
+                    if (certsResult.success) setSslCertificates(certsResult.data);
+                    if (templatesResult.success) setSslTemplates(templatesResult.data);
+                } catch (error) {
+                    console.error('Erreur chargement SSL:', error);
+                }
+            }
+
+            async function handleGenerateCertificate(isEdit = false) {
+                const currentForm = isEdit ? editForm : form;
+                const setCurrentForm = isEdit ? setEditForm : setForm;
+
+                if (!currentForm.domain) {
+                    showToast('Veuillez d\'abord renseigner le domaine', 'warning');
+                    return;
+                }
+                if (!currentForm.sslTemplateId) {
+                    showToast('Veuillez sélectionner un template', 'warning');
+                    return;
+                }
+
+                setGeneratingCert(true);
+                try {
+                    const template = sslTemplates.find(t => t.id === currentForm.sslTemplateId);
+                    const result = await api.post('/api/ssl/certificates', {
+                        domain: currentForm.domain,
+                        country: template.country,
+                        state: template.state,
+                        city: template.city,
+                        organization: template.organization,
+                        organizationalUnit: template.organizationalUnit,
+                        email: template.email,
+                        validityDays: template.validityDays
+                    });
+                    
+                    if (result.success) {
+                        showToast('Certificat généré avec succès', 'success');
+                        await loadSslData();
+                        setCurrentForm({
+                            ...currentForm,
+                            sslCertId: result.data.id,
+                            sslCertPath: result.data.certPath,
+                            sslKeyPath: result.data.keyPath,
+                            sslMode: 'select'
+                        });
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                } finally {
+                    setGeneratingCert(false);
+                }
+            }
+
+            function handleSslCertificateSelect(certId, isEdit = false) {
+                const cert = sslCertificates.find(c => c.id === certId);
+                const currentForm = isEdit ? editForm : form;
+                const setCurrentForm = isEdit ? setEditForm : setForm;
+
+                if (cert) {
+                    setCurrentForm({
+                        ...currentForm,
+                        sslCertId: certId,
+                        sslCertPath: cert.certPath,
+                        sslKeyPath: cert.keyPath
+                    });
+                }
+            }
 
             async function handleCreate(e) {
                 e.preventDefault();
@@ -5585,32 +5826,104 @@
                                         
                                         {form.useSSL && (
                                             <div className="space-y-4 pl-6 border-l-2 border-primary-200">
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                        Chemin du certificat SSL *
-                                                    </label>
-                                                    <input
-                                                        type="text"
-                                                        value={form.sslCertPath}
-                                                        onChange={(e) => setForm({...form, sslCertPath: e.target.value})}
-                                                        placeholder="/etc/ssl/certs/example.com-crt.pem"
-                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-sm"
-                                                        required={form.useSSL}
-                                                    />
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setForm({...form, sslMode: 'select'})}
+                                                        className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
+                                                            form.sslMode === 'select'
+                                                                ? 'bg-primary-600 text-white'
+                                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                        }`}
+                                                    >
+                                                        Sélectionner un certificat
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setForm({...form, sslMode: 'generate'})}
+                                                        className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
+                                                            form.sslMode === 'generate'
+                                                                ? 'bg-primary-600 text-white'
+                                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                        }`}
+                                                    >
+                                                        Générer automatiquement
+                                                    </button>
                                                 </div>
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                        Chemin de la clé privée *
-                                                    </label>
-                                                    <input
-                                                        type="text"
-                                                        value={form.sslKeyPath}
-                                                        onChange={(e) => setForm({...form, sslKeyPath: e.target.value})}
-                                                        placeholder="/etc/ssl/private/example.com-key.pem"
-                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-sm"
-                                                        required={form.useSSL}
-                                                    />
-                                                </div>
+
+                                                {form.sslMode === 'select' && (
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                            Certificat SSL *
+                                                        </label>
+                                                        <select
+                                                            value={form.sslCertId}
+                                                            onChange={(e) => handleSslCertificateSelect(e.target.value, false)}
+                                                            className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm"
+                                                            required={form.useSSL && form.sslMode === 'select'}
+                                                        >
+                                                            <option value="">-- Sélectionner un certificat --</option>
+                                                            {sslCertificates.map(cert => (
+                                                                <option key={cert.id} value={cert.id}>
+                                                                    {cert.domain} ({cert.organization || 'Sans organisation'})
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                        {form.sslCertId && (
+                                                            <div className="mt-2 p-2 bg-gray-50 rounded text-xs text-gray-600">
+                                                                <div className="font-mono truncate">Cert: {form.sslCertPath}</div>
+                                                                <div className="font-mono truncate">Key: {form.sslKeyPath}</div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {form.sslMode === 'generate' && (
+                                                    <div className="space-y-3">
+                                                        <div>
+                                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                                Template *
+                                                            </label>
+                                                            <select
+                                                                value={form.sslTemplateId}
+                                                                onChange={(e) => setForm({...form, sslTemplateId: e.target.value})}
+                                                                className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm"
+                                                                required={form.useSSL && form.sslMode === 'generate'}
+                                                            >
+                                                                <option value="">-- Sélectionner un template --</option>
+                                                                {sslTemplates.map(template => (
+                                                                    <option key={template.id} value={template.id}>
+                                                                        {template.name} ({template.organization || template.country})
+                                                                    </option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleGenerateCertificate(false)}
+                                                            disabled={!form.domain || !form.sslTemplateId || generatingCert}
+                                                            className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                                        >
+                                                            {generatingCert ? (
+                                                                <>
+                                                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                                                    Génération...
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <Icon name="zap" size={16} />
+                                                                    Générer le certificat pour {form.domain || '[domaine]'}
+                                                                </>
+                                                            )}
+                                                        </button>
+                                                        {form.sslCertPath && form.sslMode === 'generate' && (
+                                                            <div className="p-2 bg-green-50 border border-green-200 rounded text-sm text-green-700">
+                                                                ✓ Certificat généré avec succès
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
                                                 <div>
                                                     <label className="flex items-center gap-2 cursor-pointer">
                                                         <input
@@ -5761,32 +6074,104 @@
                                         </div>
                                         {editForm.useSSL && (
                                             <div className="space-y-4 pl-4 border-l-2 border-primary-200">
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                        Certificat SSL *
-                                                    </label>
-                                                    <input
-                                                        type="text"
-                                                        value={editForm.sslCertPath}
-                                                        onChange={(e) => setEditForm({...editForm, sslCertPath: e.target.value})}
-                                                        placeholder="/etc/ssl/certs/example.com-crt.pem"
-                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-sm"
-                                                        required={editForm.useSSL}
-                                                    />
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setEditForm({...editForm, sslMode: 'select'})}
+                                                        className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
+                                                            editForm.sslMode === 'select'
+                                                                ? 'bg-primary-600 text-white'
+                                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                        }`}
+                                                    >
+                                                        Sélectionner un certificat
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setEditForm({...editForm, sslMode: 'generate'})}
+                                                        className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
+                                                            editForm.sslMode === 'generate'
+                                                                ? 'bg-primary-600 text-white'
+                                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                        }`}
+                                                    >
+                                                        Générer automatiquement
+                                                    </button>
                                                 </div>
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                        Clé privée *
-                                                    </label>
-                                                    <input
-                                                        type="text"
-                                                        value={editForm.sslKeyPath}
-                                                        onChange={(e) => setEditForm({...editForm, sslKeyPath: e.target.value})}
-                                                        placeholder="/etc/ssl/private/example.com-key.pem"
-                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-sm"
-                                                        required={editForm.useSSL}
-                                                    />
-                                                </div>
+
+                                                {editForm.sslMode === 'select' && (
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                            Certificat SSL *
+                                                        </label>
+                                                        <select
+                                                            value={editForm.sslCertId}
+                                                            onChange={(e) => handleSslCertificateSelect(e.target.value, true)}
+                                                            className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm"
+                                                            required={editForm.useSSL && editForm.sslMode === 'select'}
+                                                        >
+                                                            <option value="">-- Sélectionner un certificat --</option>
+                                                            {sslCertificates.map(cert => (
+                                                                <option key={cert.id} value={cert.id}>
+                                                                    {cert.domain} ({cert.organization || 'Sans organisation'})
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                        {editForm.sslCertId && (
+                                                            <div className="mt-2 p-2 bg-gray-50 rounded text-xs text-gray-600">
+                                                                <div className="font-mono truncate">Cert: {editForm.sslCertPath}</div>
+                                                                <div className="font-mono truncate">Key: {editForm.sslKeyPath}</div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {editForm.sslMode === 'generate' && (
+                                                    <div className="space-y-3">
+                                                        <div>
+                                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                                Template *
+                                                            </label>
+                                                            <select
+                                                                value={editForm.sslTemplateId}
+                                                                onChange={(e) => setEditForm({...editForm, sslTemplateId: e.target.value})}
+                                                                className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm"
+                                                                required={editForm.useSSL && editForm.sslMode === 'generate'}
+                                                            >
+                                                                <option value="">-- Sélectionner un template --</option>
+                                                                {sslTemplates.map(template => (
+                                                                    <option key={template.id} value={template.id}>
+                                                                        {template.name} ({template.organization || template.country})
+                                                                    </option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleGenerateCertificate(true)}
+                                                            disabled={!editForm.domain || !editForm.sslTemplateId || generatingCert}
+                                                            className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                                        >
+                                                            {generatingCert ? (
+                                                                <>
+                                                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                                                    Génération...
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <Icon name="zap" size={16} />
+                                                                    Générer le certificat pour {editForm.domain || '[domaine]'}
+                                                                </>
+                                                            )}
+                                                        </button>
+                                                        {editForm.sslCertPath && editForm.sslMode === 'generate' && (
+                                                            <div className="p-2 bg-green-50 border border-green-200 rounded text-sm text-green-700">
+                                                                ✓ Certificat généré avec succès
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
                                                 <div>
                                                     <label className="flex items-center gap-2 cursor-pointer">
                                                         <input
