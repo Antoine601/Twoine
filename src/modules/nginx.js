@@ -167,8 +167,8 @@ async function createNginxConfig(domain, port, description = '', options = {}) {
         throw new Error(`Configuration Nginx invalide: ${error.message}`);
     }
 
-    // Recharger Nginx
-    await shell.execCommand('systemctl reload nginx');
+    // Recharger Nginx (démarre automatiquement s'il n'est pas actif)
+    await reloadNginx();
 
     // Sauvegarder dans notre index
     const newConfig = {
@@ -248,8 +248,8 @@ async function updateNginxConfigFile(id, content) {
         // Tester la configuration
         await shell.execCommand('nginx -t');
         
-        // Recharger Nginx
-        await shell.execCommand('systemctl reload nginx');
+        // Recharger Nginx (démarre automatiquement s'il n'est pas actif)
+        await reloadNginx();
         
         logger.info(`Configuration Nginx mise à jour: ${config.domain}`);
         return true;
@@ -282,8 +282,8 @@ async function deleteNginxConfig(id) {
         fs.unlinkSync(availablePath);
     }
 
-    // Recharger Nginx
-    await shell.execCommand('systemctl reload nginx');
+    // Recharger Nginx (démarre automatiquement s'il n'est pas actif)
+    await reloadNginx();
 
     // Mettre à jour l'index
     const updatedConfigs = configs.filter(c => c.id !== id);
@@ -319,8 +319,8 @@ async function toggleNginxConfig(id, enabled) {
         }
     }
 
-    // Recharger Nginx
-    await shell.execCommand('systemctl reload nginx');
+    // Recharger Nginx (démarre automatiquement s'il n'est pas actif)
+    await reloadNginx();
 
     // Mettre à jour l'index
     config.enabled = enabled;
@@ -334,9 +334,30 @@ async function toggleNginxConfig(id, enabled) {
  * Recharger Nginx
  */
 async function reloadNginx() {
-    await shell.execCommand('systemctl reload nginx');
-    logger.info('Nginx rechargé');
-    return true;
+    try {
+        // Vérifier si Nginx est actif
+        const { stdout } = await shell.execCommand('systemctl is-active nginx');
+        const isActive = stdout.trim() === 'active';
+        
+        if (!isActive) {
+            // Démarrer Nginx s'il n'est pas actif
+            logger.info('Nginx n\'est pas actif, démarrage...');
+            await shell.execCommand('systemctl start nginx');
+            logger.info('Nginx démarré');
+        } else {
+            // Recharger Nginx s'il est déjà actif
+            await shell.execCommand('systemctl reload nginx');
+            logger.info('Nginx rechargé');
+        }
+        
+        return true;
+    } catch (error) {
+        // Si la commande échoue, essayer de démarrer Nginx
+        logger.warn('Erreur lors de la vérification du statut, tentative de démarrage...');
+        await shell.execCommand('systemctl start nginx');
+        logger.info('Nginx démarré');
+        return true;
+    }
 }
 
 /**
