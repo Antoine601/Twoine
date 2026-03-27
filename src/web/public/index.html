@@ -1631,7 +1631,23 @@
         // Add Service Modal
         // ============================================
         function AddServiceModal({ projectName, onClose, onSuccess, showToast }) {
-            const [form, setForm] = useState({ name: '', directory: '', command: '', description: '', setupCommands: '', runtime: 'nodejs', port: '8000' });
+            const [form, setForm] = useState({ 
+                name: '', 
+                directory: '', 
+                command: '', 
+                description: '', 
+                setupCommands: '', 
+                runtime: 'nodejs', 
+                port: '8000',
+                createNginxConfig: false,
+                nginxDomain: '',
+                nginxUseSSL: false,
+                nginxSslCertPath: '',
+                nginxSslKeyPath: '',
+                nginxRedirectHTTP: false,
+                nginxTargetHost: 'localhost',
+                nginxTargetProtocol: 'http'
+            });
             const [loading, setLoading] = useState(false);
 
             // Mettre à jour la commande par défaut selon le runtime
@@ -1662,18 +1678,47 @@
             async function handleSubmit(e) {
                 e.preventDefault();
                 setLoading(true);
+                
+                // Ajouter le service
                 const result = await api.post(`/api/projects/${projectName}/services`, {
-                    ...form,
+                    name: form.name,
                     directory: form.directory || form.name,
+                    command: form.command,
+                    description: form.description,
+                    runtime: form.runtime,
+                    port: form.port,
                     setupCommands: form.setupCommands ? form.setupCommands.split(';').map(c => c.trim()).filter(c => c) : []
                 });
-                setLoading(false);
+                
                 if (result.success) {
-                    showToast(`Service "${form.name}" ajouté`, 'success');
+                    // Créer la configuration Nginx si demandé
+                    if (form.createNginxConfig && form.nginxDomain) {
+                        const nginxResult = await api.post('/api/nginx/configs', {
+                            domain: form.nginxDomain,
+                            port: form.port,
+                            description: `${projectName} - ${form.name}`,
+                            useSSL: form.nginxUseSSL,
+                            sslCertPath: form.nginxSslCertPath,
+                            sslKeyPath: form.nginxSslKeyPath,
+                            redirectHTTP: form.nginxRedirectHTTP,
+                            targetHost: form.nginxTargetHost,
+                            targetProtocol: form.nginxTargetProtocol
+                        });
+                        
+                        if (nginxResult.success) {
+                            showToast(`Service "${form.name}" ajouté avec configuration Nginx`, 'success');
+                        } else {
+                            showToast(`Service ajouté mais erreur Nginx: ${nginxResult.error}`, 'warning');
+                        }
+                    } else {
+                        showToast(`Service "${form.name}" ajouté`, 'success');
+                    }
                     onSuccess();
                 } else {
                     showToast(result.error, 'error');
                 }
+                
+                setLoading(false);
             }
 
             return (
@@ -1736,6 +1781,122 @@
                             <input type="text" value={form.description} onChange={e => setForm({...form, description: e.target.value})} placeholder="API principale..."
                                 className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm" />
                         </div>
+
+                        {/* Configuration Nginx */}
+                        <div className="pt-4 border-t border-gray-200">
+                            <div className="flex items-center justify-between mb-3">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={form.createNginxConfig}
+                                        onChange={(e) => setForm({...form, createNginxConfig: e.target.checked})}
+                                        className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                                    />
+                                    <span className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                                        <Icon name="globe" size={14} />
+                                        Créer une configuration Nginx
+                                    </span>
+                                </label>
+                            </div>
+
+                            {form.createNginxConfig && (
+                                <div className="space-y-3 pl-6 border-l-2 border-primary-200">
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                                            Domaine *
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={form.nginxDomain}
+                                            onChange={(e) => setForm({...form, nginxDomain: e.target.value})}
+                                            placeholder="example.com"
+                                            className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm"
+                                            required={form.createNginxConfig}
+                                        />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">
+                                                Hôte cible
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={form.nginxTargetHost}
+                                                onChange={(e) => setForm({...form, nginxTargetHost: e.target.value})}
+                                                placeholder="localhost"
+                                                className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">
+                                                Protocole cible
+                                            </label>
+                                            <select
+                                                value={form.nginxTargetProtocol}
+                                                onChange={(e) => setForm({...form, nginxTargetProtocol: e.target.value})}
+                                                className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm"
+                                            >
+                                                <option value="http">HTTP</option>
+                                                <option value="https">HTTPS</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={form.nginxUseSSL}
+                                                onChange={(e) => setForm({...form, nginxUseSSL: e.target.checked})}
+                                                className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                                            />
+                                            <span className="text-xs text-gray-700">Activer SSL/HTTPS</span>
+                                        </label>
+                                    </div>
+                                    {form.nginxUseSSL && (
+                                        <div className="space-y-2 pl-4">
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-700 mb-1">
+                                                    Certificat SSL *
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={form.nginxSslCertPath}
+                                                    onChange={(e) => setForm({...form, nginxSslCertPath: e.target.value})}
+                                                    placeholder="/etc/ssl/certs/example.com-crt.pem"
+                                                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-xs font-mono"
+                                                    required={form.nginxUseSSL}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-700 mb-1">
+                                                    Clé privée *
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={form.nginxSslKeyPath}
+                                                    onChange={(e) => setForm({...form, nginxSslKeyPath: e.target.value})}
+                                                    placeholder="/etc/ssl/private/example.com-key.pem"
+                                                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-xs font-mono"
+                                                    required={form.nginxUseSSL}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="flex items-center gap-2 cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={form.nginxRedirectHTTP}
+                                                        onChange={(e) => setForm({...form, nginxRedirectHTTP: e.target.checked})}
+                                                        className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                                                    />
+                                                    <span className="text-xs text-gray-700">Rediriger HTTP vers HTTPS</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
                         <div className="flex justify-end gap-3 pt-2">
                             <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 text-sm transition-colors">Annuler</button>
                             <button type="submit" disabled={loading} className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium transition-colors disabled:opacity-50">
