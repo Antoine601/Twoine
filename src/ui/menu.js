@@ -13,6 +13,7 @@ import projects from '../modules/projects.js';
 import services from '../modules/services.js';
 import scripts from '../modules/scripts.js';
 import sftp from '../modules/sftp.js';
+import nginx from '../modules/nginx.js';
 import logger from '../utils/logger.js';
 import { MESSAGES } from '../config/constants.js';
 
@@ -322,6 +323,8 @@ export async function projectManagementMenu(projectName) {
 
         choices.push(
             new inquirer.Separator(),
+            { name: '🌐  Gérer les reverse proxy (Nginx)', value: 'nginx_menu' },
+            new inquirer.Separator(),
             { name: '🔑  Changer mot de passe SFTP', value: 'change_password' },
             { name: '📜  Régénérer les scripts', value: 'regenerate' },
             { name: '📂  Afficher les chemins', value: 'paths' },
@@ -376,6 +379,9 @@ export async function projectManagementMenu(projectName) {
                 break;
             case 'paths':
                 await showProjectPaths(projectName);
+                break;
+            case 'nginx_menu':
+                await nginxManagementMenu(projectName);
                 break;
             case 'back':
                 return;
@@ -922,6 +928,408 @@ export async function regenerateAllScriptsAction() {
     try {
         scripts.regenerateAllScripts();
         spinner.succeed('Scripts régénérés');
+    } catch (error) {
+        spinner.fail('Erreur');
+        logger.error(error.message);
+    }
+
+    await pressEnterToContinue();
+}
+
+/**
+ * Menu de gestion Nginx
+ */
+async function nginxManagementMenu(projectName) {
+    while (true) {
+        displayHeader();
+        logger.section(`Reverse Proxy Nginx - ${projectName}`);
+
+        const proxiesStatus = nginx.getAllProxiesStatus(projectName);
+
+        if (proxiesStatus.length > 0) {
+            const table = new Table({
+                head: [
+                    chalk.cyan('Nom'),
+                    chalk.cyan('Domaine'),
+                    chalk.cyan('Cible'),
+                    chalk.cyan('SSL'),
+                    chalk.cyan('Statut')
+                ],
+                colWidths: [15, 30, 25, 8, 12]
+            });
+
+            for (const proxy of proxiesStatus) {
+                const statusIcon = proxy.enabled
+                    ? chalk.green('● actif')
+                    : chalk.gray('○ inactif');
+                const sslIcon = proxy.ssl ? chalk.green('✓') : chalk.gray('-');
+                const target = `${proxy.targetHost}:${proxy.targetPort}`;
+
+                table.push([
+                    proxy.name,
+                    proxy.domain,
+                    target,
+                    sslIcon,
+                    statusIcon
+                ]);
+            }
+
+            console.log(table.toString());
+        } else {
+            console.log(chalk.yellow('Aucun reverse proxy configuré.\n'));
+        }
+
+        const choices = [
+            { name: '➕  Ajouter un reverse proxy', value: 'add_proxy' },
+        ];
+
+        if (proxiesStatus.length > 0) {
+            choices.push(
+                { name: '✏️   Modifier un proxy', value: 'edit_proxy' },
+                { name: '🗑️   Supprimer un proxy', value: 'remove_proxy' },
+                new inquirer.Separator(),
+                { name: '✅  Activer un proxy', value: 'enable_proxy' },
+                { name: '❌  Désactiver un proxy', value: 'disable_proxy' }
+            );
+        }
+
+        choices.push(
+            new inquirer.Separator(),
+            { name: '← Retour', value: 'back' }
+        );
+
+        const { action } = await inquirer.prompt([
+            {
+                type: 'list',
+                name: 'action',
+                message: 'Action:',
+                choices
+            }
+        ]);
+
+        switch (action) {
+            case 'add_proxy':
+                await addProxyForm(projectName);
+                break;
+            case 'edit_proxy':
+                await editProxyForm(projectName);
+                break;
+            case 'remove_proxy':
+                await removeProxyAction(projectName);
+                break;
+            case 'enable_proxy':
+                await enableProxyAction(projectName);
+                break;
+            case 'disable_proxy':
+                await disableProxyAction(projectName);
+                break;
+            case 'back':
+                return;
+        }
+    }
+}
+
+/**
+ * Formulaire d'ajout de reverse proxy
+ */
+async function addProxyForm(projectName) {
+    logger.section('Ajouter un reverse proxy');
+
+    const answers = await inquirer.prompt([
+        {
+            type: 'input',
+            name: 'name',
+            message: 'Nom du proxy (ex: api, web):',
+            validate: (input) => {
+                if (!input || input.trim() === '') {
+                    return 'Le nom est requis';
+                }
+                if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(input)) {
+                    return 'Le nom doit commencer par une lettre';
+                }
+                return true;
+            }
+        },
+        {
+            type: 'input',
+            name: 'domain',
+            message: 'Nom de domaine (ex: api.example.com):',
+            validate: (input) => input && input.trim() !== '' ? true : 'Le domaine est requis'
+        },
+        {
+            type: 'input',
+            name: 'targetHost',
+            message: 'Hôte cible:',
+            default: 'localhost'
+        },
+        {
+            type: 'input',
+            name: 'targetPort',
+            message: 'Port cible:',
+            validate: (input) => {
+                const port = parseInt(input);
+                if (isNaN(port) || port < 1 || port > 65535) {
+                    return 'Port invalide (1-65535)';
+                }
+                return true;
+            },
+            filter: (input) => parseInt(input)
+        },
+        {
+            type: 'confirm',
+            name: 'ssl',
+            message: 'Activer SSL (nécessite certbot) ?',
+            default: false
+        },
+        {
+            type: 'confirm',
+            name: 'confirm',
+            message: 'Créer ce reverse proxy ?',
+            default: true
+        }
+    ]);
+
+    if (!answers.confirm) {
+        logger.warn(MESSAGES.operationCancelled);
+        await pressEnterToContinue();
+        return;
+    }
+
+    try {
+        nginx.addProxy(projectName, {
+            name: answers.name,
+            domain: answers.domain,
+            targetHost: answers.targetHost,
+            targetPort: answers.targetPort,
+            ssl: answers.ssl
+        });
+        logger.success(`Proxy ${answers.name} ajouté`);
+        
+        const { enableNow } = await inquirer.prompt([
+            {
+                type: 'confirm',
+                name: 'enableNow',
+                message: 'Activer le proxy maintenant ?',
+                default: true
+            }
+        ]);
+
+        if (enableNow) {
+            const ora = (await import('ora')).default;
+            const spinner = ora('Activation du proxy...').start();
+            try {
+                await nginx.enableProxy(projectName, answers.name);
+                spinner.succeed('Proxy activé');
+            } catch (error) {
+                spinner.fail('Erreur');
+                logger.error(error.message);
+            }
+        }
+    } catch (error) {
+        logger.error(error.message);
+    }
+
+    await pressEnterToContinue();
+}
+
+/**
+ * Sélection d'un proxy
+ */
+async function selectProxy(projectName, message = 'Sélectionner un proxy:') {
+    const proxiesList = nginx.listProxies(projectName);
+
+    if (proxiesList.length === 0) {
+        logger.warn('Aucun proxy configuré.');
+        return null;
+    }
+
+    const { proxyName } = await inquirer.prompt([
+        {
+            type: 'list',
+            name: 'proxyName',
+            message,
+            choices: [
+                ...proxiesList.map(p => ({
+                    name: `${p.name} (${p.domain} → ${p.targetHost}:${p.targetPort})`,
+                    value: p.name
+                })),
+                new inquirer.Separator(),
+                { name: '← Annuler', value: null }
+            ]
+        }
+    ]);
+
+    return proxyName;
+}
+
+/**
+ * Formulaire d'édition de proxy
+ */
+async function editProxyForm(projectName) {
+    const proxyName = await selectProxy(projectName, 'Proxy à modifier:');
+    if (!proxyName) return;
+
+    const proxy = nginx.getProxy(projectName, proxyName);
+
+    const answers = await inquirer.prompt([
+        {
+            type: 'input',
+            name: 'domain',
+            message: 'Nouveau domaine:',
+            default: proxy.domain
+        },
+        {
+            type: 'input',
+            name: 'targetHost',
+            message: 'Nouvel hôte cible:',
+            default: proxy.targetHost
+        },
+        {
+            type: 'input',
+            name: 'targetPort',
+            message: 'Nouveau port cible:',
+            default: proxy.targetPort.toString(),
+            validate: (input) => {
+                const port = parseInt(input);
+                if (isNaN(port) || port < 1 || port > 65535) {
+                    return 'Port invalide (1-65535)';
+                }
+                return true;
+            },
+            filter: (input) => parseInt(input)
+        },
+        {
+            type: 'confirm',
+            name: 'ssl',
+            message: 'SSL activé ?',
+            default: proxy.ssl
+        },
+        {
+            type: 'confirm',
+            name: 'confirm',
+            message: 'Appliquer les modifications ?',
+            default: true
+        }
+    ]);
+
+    if (!answers.confirm) return;
+
+    try {
+        nginx.updateProxy(projectName, proxyName, {
+            domain: answers.domain,
+            targetHost: answers.targetHost,
+            targetPort: answers.targetPort,
+            ssl: answers.ssl
+        });
+        logger.success('Proxy mis à jour');
+
+        if (nginx.isProxyEnabled(projectName, proxyName)) {
+            const { reloadNow } = await inquirer.prompt([
+                {
+                    type: 'confirm',
+                    name: 'reloadNow',
+                    message: 'Le proxy est actif. Recharger la configuration Nginx ?',
+                    default: true
+                }
+            ]);
+
+            if (reloadNow) {
+                const ora = (await import('ora')).default;
+                const spinner = ora('Rechargement...').start();
+                try {
+                    await nginx.enableProxy(projectName, proxyName);
+                    spinner.succeed('Configuration rechargée');
+                } catch (error) {
+                    spinner.fail('Erreur');
+                    logger.error(error.message);
+                }
+            }
+        }
+    } catch (error) {
+        logger.error(error.message);
+    }
+
+    await pressEnterToContinue();
+}
+
+/**
+ * Action: Supprimer un proxy
+ */
+async function removeProxyAction(projectName) {
+    const proxyName = await selectProxy(projectName, 'Proxy à supprimer:');
+    if (!proxyName) return;
+
+    const { confirm } = await inquirer.prompt([
+        {
+            type: 'confirm',
+            name: 'confirm',
+            message: `Supprimer le proxy "${proxyName}" ?`,
+            default: false
+        }
+    ]);
+
+    if (!confirm) return;
+
+    const ora = (await import('ora')).default;
+    const spinner = ora('Suppression...').start();
+
+    try {
+        await nginx.removeProxy(projectName, proxyName);
+        spinner.succeed('Proxy supprimé');
+    } catch (error) {
+        spinner.fail('Erreur');
+        logger.error(error.message);
+    }
+
+    await pressEnterToContinue();
+}
+
+/**
+ * Action: Activer un proxy
+ */
+async function enableProxyAction(projectName) {
+    const proxyName = await selectProxy(projectName, 'Proxy à activer:');
+    if (!proxyName) return;
+
+    if (nginx.isProxyEnabled(projectName, proxyName)) {
+        logger.warn('Ce proxy est déjà activé.');
+        await pressEnterToContinue();
+        return;
+    }
+
+    const ora = (await import('ora')).default;
+    const spinner = ora(`Activation de ${proxyName}...`).start();
+
+    try {
+        await nginx.enableProxy(projectName, proxyName);
+        spinner.succeed(`${proxyName} activé`);
+    } catch (error) {
+        spinner.fail('Erreur');
+        logger.error(error.message);
+    }
+
+    await pressEnterToContinue();
+}
+
+/**
+ * Action: Désactiver un proxy
+ */
+async function disableProxyAction(projectName) {
+    const proxyName = await selectProxy(projectName, 'Proxy à désactiver:');
+    if (!proxyName) return;
+
+    if (!nginx.isProxyEnabled(projectName, proxyName)) {
+        logger.warn('Ce proxy est déjà désactivé.');
+        await pressEnterToContinue();
+        return;
+    }
+
+    const ora = (await import('ora')).default;
+    const spinner = ora(`Désactivation de ${proxyName}...`).start();
+
+    try {
+        await nginx.disableProxy(projectName, proxyName);
+        spinner.succeed(`${proxyName} désactivé`);
     } catch (error) {
         spinner.fail('Erreur');
         logger.error(error.message);
