@@ -2301,4 +2301,138 @@ router.post('/import', async (req, res) => {
     }
 });
 
+// ============================================
+// NGINX
+// ============================================
+
+/**
+ * GET /api/nginx/configs - Liste les configurations Nginx
+ */
+router.get('/nginx/configs', async (req, res) => {
+    try {
+        const configs = [];
+        const sitesAvailable = '/etc/nginx/sites-available';
+        const sitesEnabled = '/etc/nginx/sites-enabled';
+
+        // Vérifier si les répertoires existent
+        if (!fs.existsSync(sitesAvailable)) {
+            return res.json({ success: true, data: [] });
+        }
+
+        // Lire les fichiers de configuration
+        const files = fs.readdirSync(sitesAvailable);
+        
+        for (const file of files) {
+            if (file === 'default') continue; // Ignorer le fichier default
+            
+            const configPath = path.join(sitesAvailable, file);
+            const enabledPath = path.join(sitesEnabled, file);
+            const isEnabled = fs.existsSync(enabledPath);
+            
+            try {
+                const content = fs.readFileSync(configPath, 'utf8');
+                
+                // Parser les informations de base
+                const serverNames = [];
+                const ports = [];
+                
+                // Extraire server_name
+                const serverNameMatches = content.matchAll(/server_name\s+([^;]+);/g);
+                for (const match of serverNameMatches) {
+                    const names = match[1].trim().split(/\s+/);
+                    serverNames.push(...names);
+                }
+                
+                // Extraire les ports
+                const listenMatches = content.matchAll(/listen\s+(\d+)/g);
+                for (const match of listenMatches) {
+                    if (!ports.includes(match[1])) {
+                        ports.push(match[1]);
+                    }
+                }
+                
+                configs.push({
+                    name: file,
+                    path: configPath,
+                    enabled: isEnabled,
+                    serverNames: [...new Set(serverNames)],
+                    ports: [...new Set(ports)]
+                });
+            } catch (error) {
+                logger.warn(`Erreur lecture config ${file}: ${error.message}`);
+            }
+        }
+
+        res.json({ success: true, data: configs });
+    } catch (error) {
+        logger.error(`API Nginx configs: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/nginx/test - Tester la configuration Nginx
+ */
+router.post('/nginx/test', async (req, res) => {
+    try {
+        const { stdout, stderr } = await shell.execCommand('nginx -t 2>&1');
+        const output = stdout + stderr;
+        
+        if (output.includes('syntax is ok') && output.includes('test is successful')) {
+            res.json({ 
+                success: true, 
+                message: 'Configuration valide',
+                output 
+            });
+        } else {
+            res.json({ 
+                success: false, 
+                error: 'Configuration invalide',
+                output 
+            });
+        }
+    } catch (error) {
+        logger.error(`API Nginx test: ${error.message}`);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Erreur lors du test de configuration',
+            details: error.message 
+        });
+    }
+});
+
+/**
+ * POST /api/nginx/reload - Recharger Nginx
+ */
+router.post('/nginx/reload', async (req, res) => {
+    try {
+        // Tester d'abord la configuration
+        const { stdout: testOut, stderr: testErr } = await shell.execCommand('nginx -t 2>&1');
+        const testOutput = testOut + testErr;
+        
+        if (!testOutput.includes('syntax is ok') || !testOutput.includes('test is successful')) {
+            return res.json({ 
+                success: false, 
+                error: 'Configuration invalide, rechargement annulé',
+                output: testOutput 
+            });
+        }
+
+        // Recharger Nginx
+        await shell.execCommand('systemctl reload nginx');
+        
+        res.json({ 
+            success: true, 
+            message: 'Nginx rechargé avec succès' 
+        });
+    } catch (error) {
+        logger.error(`API Nginx reload: ${error.message}`);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Erreur lors du rechargement',
+            details: error.message 
+        });
+    }
+});
+
 export default router;
