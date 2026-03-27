@@ -380,6 +380,47 @@ async function getNginxStatus() {
     }
 }
 
+/**
+ * Lire le fichier de configuration global nginx.conf
+ */
+function readGlobalConfig() {
+    const globalConfigPath = '/etc/nginx/nginx.conf';
+    if (!fs.existsSync(globalConfigPath)) {
+        throw new Error('Fichier nginx.conf non trouvé');
+    }
+    return fs.readFileSync(globalConfigPath, 'utf8');
+}
+
+/**
+ * Mettre à jour le fichier de configuration global nginx.conf
+ */
+async function updateGlobalConfig(content) {
+    const globalConfigPath = '/etc/nginx/nginx.conf';
+    const backupPath = '/etc/nginx/nginx.conf.backup';
+    
+    // Sauvegarder l'ancien contenu pour rollback
+    const oldContent = fs.readFileSync(globalConfigPath, 'utf8');
+    fs.writeFileSync(backupPath, oldContent);
+    
+    try {
+        // Écrire le nouveau contenu
+        fs.writeFileSync(globalConfigPath, content);
+        
+        // Tester la configuration
+        await shell.execCommand('nginx -t');
+        
+        // Recharger Nginx (démarre automatiquement s'il n'est pas actif)
+        await reloadNginx();
+        
+        logger.info('Configuration globale Nginx mise à jour');
+        return true;
+    } catch (error) {
+        // Rollback en cas d'erreur
+        fs.writeFileSync(globalConfigPath, oldContent);
+        throw new Error(`Erreur lors de la mise à jour de nginx.conf: ${error.message}`);
+    }
+}
+
 export default {
     createNginxConfig,
     listNginxConfigs,
@@ -389,5 +430,7 @@ export default {
     deleteNginxConfig,
     toggleNginxConfig,
     reloadNginx,
-    getNginxStatus
+    getNginxStatus,
+    readGlobalConfig,
+    updateGlobalConfig
 };

@@ -2457,4 +2457,35 @@ router.get('/nginx/status', async (req, res) => {
     }
 });
 
+/**
+ * GET /api/nginx/global-config - Lire le fichier nginx.conf global
+ */
+router.get('/nginx/global-config', (req, res) => {
+    try {
+        const content = nginx.readGlobalConfig();
+        res.json({ success: true, data: content });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * PUT /api/nginx/global-config - Mettre à jour le fichier nginx.conf global
+ */
+router.put('/nginx/global-config', async (req, res) => {
+    try {
+        const { content } = req.body;
+        if (!content) {
+            return res.status(400).json({ success: false, error: 'Contenu requis' });
+        }
+        
+        await nginx.updateGlobalConfig(content);
+        res.json({ success: true, message: 'Configuration globale mise à jour' });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
 export default router;
