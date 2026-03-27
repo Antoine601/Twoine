@@ -571,7 +571,7 @@
                 { id: 'dashboard', icon: 'layout-dashboard', label: 'Tableau de bord' },
                 { id: 'projects', icon: 'folder-open', label: 'Projets' },
                 { id: 'databases', icon: 'database', label: 'Bases de données' },
-                { id: 'nginx', icon: 'globe', label: 'Nginx (Reverse Proxy)' },
+                { id: 'nginx', icon: 'globe', label: 'Nginx' },
                 { id: 'api-keys', icon: 'key', label: 'Clés API' },
                 ...(isAdmin ? [
                     { id: 'ai-models', icon: 'brain', label: 'Modèles IA' },
@@ -4706,6 +4706,349 @@
         }
 
         // ============================================
+        // Nginx Page
+        // ============================================
+        function NginxPage({ showToast }) {
+            const [configs, setConfigs] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [showCreateModal, setShowCreateModal] = useState(false);
+            const [showEditModal, setShowEditModal] = useState(false);
+            const [selectedConfig, setSelectedConfig] = useState(null);
+            const [editContent, setEditContent] = useState('');
+            const [form, setForm] = useState({
+                domain: '',
+                port: '',
+                description: ''
+            });
+
+            const loadConfigs = useCallback(async () => {
+                setLoading(true);
+                try {
+                    const result = await api.get('/api/nginx/configs');
+                    if (result.success) setConfigs(result.data);
+                } catch (error) {
+                    showToast('Erreur lors du chargement des configurations', 'error');
+                }
+                setLoading(false);
+            }, [showToast]);
+
+            useEffect(() => { loadConfigs(); }, [loadConfigs]);
+
+            async function handleCreate(e) {
+                e.preventDefault();
+                try {
+                    const result = await api.post('/api/nginx/configs', form);
+                    if (result.success) {
+                        showToast('Configuration Nginx créée avec succès', 'success');
+                        setShowCreateModal(false);
+                        setForm({ domain: '', port: '', description: '' });
+                        loadConfigs();
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
+            }
+
+            async function handleDelete(config) {
+                if (!confirm(`Supprimer la configuration pour "${config.domain}" ?`)) return;
+                
+                try {
+                    const result = await api.del(`/api/nginx/configs/${config.id}`);
+                    if (result.success) {
+                        showToast('Configuration supprimée', 'success');
+                        loadConfigs();
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
+            }
+
+            async function handleToggle(config) {
+                try {
+                    const result = await api.put(`/api/nginx/configs/${config.id}/toggle`, {
+                        enabled: !config.enabled
+                    });
+                    if (result.success) {
+                        showToast(`Configuration ${!config.enabled ? 'activée' : 'désactivée'}`, 'success');
+                        loadConfigs();
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
+            }
+
+            async function handleEdit(config) {
+                try {
+                    const result = await api.get(`/api/nginx/configs/${config.id}/content`);
+                    if (result.success) {
+                        setSelectedConfig(config);
+                        setEditContent(result.data);
+                        setShowEditModal(true);
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
+            }
+
+            async function handleSaveEdit(e) {
+                e.preventDefault();
+                try {
+                    const result = await api.put(`/api/nginx/configs/${selectedConfig.id}/content`, {
+                        content: editContent
+                    });
+                    if (result.success) {
+                        showToast('Configuration mise à jour', 'success');
+                        setShowEditModal(false);
+                        setSelectedConfig(null);
+                        loadConfigs();
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
+            }
+
+            async function handleReload() {
+                try {
+                    const result = await api.post('/api/nginx/reload');
+                    if (result.success) {
+                        showToast('Nginx rechargé avec succès', 'success');
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
+            }
+
+            return (
+                <div className="fade-in">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                        <div>
+                            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Nginx</h1>
+                            <p className="text-sm sm:text-base text-gray-600 mt-1">Gestion des reverse proxy</p>
+                        </div>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={handleReload}
+                                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2"
+                            >
+                                <Icon name="refresh-cw" size={16} />
+                                <span className="hidden sm:inline">Recharger Nginx</span>
+                            </button>
+                            <button
+                                onClick={() => setShowCreateModal(true)}
+                                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2"
+                            >
+                                <Icon name="plus" size={16} />
+                                <span>Nouvelle config</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {loading ? (
+                        <div className="text-center py-12">
+                            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+                        </div>
+                    ) : configs.length === 0 ? (
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 sm:p-12 text-center">
+                            <Icon name="globe" size={48} className="mx-auto text-gray-400 mb-4" />
+                            <h3 className="text-lg font-semibold text-gray-900 mb-2">Aucune configuration Nginx</h3>
+                            <p className="text-gray-600 mb-6">Créez votre première configuration de reverse proxy</p>
+                            <button
+                                onClick={() => setShowCreateModal(true)}
+                                className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors inline-flex items-center gap-2"
+                            >
+                                <Icon name="plus" size={16} />
+                                Créer une configuration
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="grid gap-4">
+                            {configs.map(config => (
+                                <div key={config.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
+                                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-3 mb-2">
+                                                <h3 className="text-lg font-semibold text-gray-900 truncate">{config.domain}</h3>
+                                                <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                                                    config.enabled 
+                                                        ? 'bg-green-100 text-green-700' 
+                                                        : 'bg-gray-100 text-gray-700'
+                                                }`}>
+                                                    {config.enabled ? 'Activé' : 'Désactivé'}
+                                                </span>
+                                            </div>
+                                            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm text-gray-600">
+                                                <div className="flex items-center gap-2">
+                                                    <Icon name="arrow-right" size={14} />
+                                                    <span>localhost:{config.port}</span>
+                                                </div>
+                                                {config.description && (
+                                                    <div className="flex items-center gap-2">
+                                                        <Icon name="info" size={14} />
+                                                        <span className="truncate">{config.description}</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="text-xs text-gray-500 mt-2">
+                                                Créé le {new Date(config.createdAt).toLocaleDateString('fr-FR')}
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => handleToggle(config)}
+                                                className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                                                title={config.enabled ? 'Désactiver' : 'Activer'}
+                                            >
+                                                <Icon name={config.enabled ? 'toggle-right' : 'toggle-left'} size={18} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleEdit(config)}
+                                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                title="Éditer"
+                                            >
+                                                <Icon name="edit" size={18} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDelete(config)}
+                                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                title="Supprimer"
+                                            >
+                                                <Icon name="trash-2" size={18} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Create Modal */}
+                    {showCreateModal && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+                                <div className="p-6 border-b border-gray-200">
+                                    <h2 className="text-xl font-bold text-gray-900">Nouvelle configuration Nginx</h2>
+                                </div>
+                                <form onSubmit={handleCreate} className="p-6 space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Domaine
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={form.domain}
+                                            onChange={(e) => setForm({...form, domain: e.target.value})}
+                                            placeholder="example.com"
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Port local
+                                        </label>
+                                        <input
+                                            type="number"
+                                            value={form.port}
+                                            onChange={(e) => setForm({...form, port: e.target.value})}
+                                            placeholder="3000"
+                                            min="1"
+                                            max="65535"
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Description (optionnel)
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={form.description}
+                                            onChange={(e) => setForm({...form, description: e.target.value})}
+                                            placeholder="Mon application"
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                        />
+                                    </div>
+                                    <div className="flex gap-3 pt-4">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowCreateModal(false)}
+                                            className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                                        >
+                                            Annuler
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                                        >
+                                            Créer
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Edit Modal */}
+                    {showEditModal && selectedConfig && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+                                <div className="p-6 border-b border-gray-200">
+                                    <h2 className="text-xl font-bold text-gray-900">Éditer la configuration</h2>
+                                    <p className="text-sm text-gray-600 mt-1">{selectedConfig.domain}</p>
+                                </div>
+                                <form onSubmit={handleSaveEdit} className="p-6 space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Configuration Nginx
+                                        </label>
+                                        <textarea
+                                            value={editContent}
+                                            onChange={(e) => setEditContent(e.target.value)}
+                                            rows={20}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-sm"
+                                            required
+                                        />
+                                    </div>
+                                    <div className="flex gap-3 pt-4">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setShowEditModal(false);
+                                                setSelectedConfig(null);
+                                            }}
+                                            className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                                        >
+                                            Annuler
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                                        >
+                                            Sauvegarder
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ============================================
         // API Keys Page
         // ============================================
         function APIKeysPage({ showToast, currentUser, allProjects, onNavigate }) {
@@ -6404,6 +6747,8 @@
                         return <DatabasesPage onNavigate={navigate} showToast={showToast} currentUser={currentUser} />;
                     case 'database-editor':
                         return <DatabaseEditorPage databaseId={pageParam} onNavigate={navigate} showToast={showToast} />;
+                    case 'nginx':
+                        return <NginxPage showToast={showToast} />;
                     case 'create-project':
                         if (!isAdmin) return <DashboardPage projects={visibleProjects} onNavigate={navigate} onRefresh={loadProjects} showToast={showToast} currentUser={currentUser} />;
                         return <CreateProjectPage onNavigate={navigate} onRefresh={loadProjects} showToast={showToast} />;

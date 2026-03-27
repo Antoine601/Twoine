@@ -255,8 +255,35 @@ ollama pull llama3.2 || echo -e "${YELLOW}⚠ Impossible d'installer llama3.2 au
 
 echo -e "${GREEN}✔ Ollama configuré${NC}"
 
+# Vérifier/Installer Nginx
+echo -e "${CYAN}[11/13]${NC} Installation de Nginx..."
+
+if command -v nginx &> /dev/null; then
+    echo -e "${GREEN}✔ Nginx $(nginx -v 2>&1 | cut -d'/' -f2) détecté${NC}"
+else
+    echo "Installation de Nginx..."
+    apt-get install -y nginx
+    echo -e "${GREEN}✔ Nginx installé${NC}"
+fi
+
+# Créer les dossiers pour les configurations Nginx
+mkdir -p /etc/nginx/sites-available
+mkdir -p /etc/nginx/sites-enabled
+
+# S'assurer que Nginx est activé et démarré
+systemctl enable nginx 2>/dev/null || true
+systemctl start nginx 2>/dev/null || true
+
+# Vérifier que Nginx est bien démarré
+if systemctl is-active --quiet nginx; then
+    echo -e "${GREEN}✔ Nginx démarré et actif${NC}"
+else
+    echo -e "${YELLOW}⚠ Nginx installé mais le service n'a pas démarré automatiquement${NC}"
+    echo "  Vous pouvez le démarrer manuellement avec: sudo systemctl start nginx"
+fi
+
 # Copier les fichiers
-echo -e "${CYAN}[11/12]${NC} Installation de l'outil..."
+echo -e "${CYAN}[12/13]${NC} Installation de l'outil..."
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
@@ -279,7 +306,7 @@ npm install --production
 echo -e "${GREEN}✔ Dépendances Node.js installées${NC}"
 
 # Créer le lien symbolique
-echo -e "${CYAN}[12/12]${NC} Configuration finale..."
+echo -e "${CYAN}[13/13]${NC} Configuration finale..."
 
 chmod +x "$INSTALL_DIR/src/index.js"
 
@@ -317,6 +344,7 @@ echo -e "  • MongoDB: $(systemctl is-active mongod)"
 echo -e "  • PostgreSQL: $(systemctl is-active postgresql)"
 echo -e "  • PM2: $(pm2 --version)"
 echo -e "  • Ollama: $(systemctl is-active ollama 2>/dev/null || echo 'installé')"
+echo -e "  • Nginx: $(systemctl is-active nginx)"
 echo ""
 echo -e "${CYAN}Pour lancer l'outil:${NC}"
 echo -e "  ${YELLOW}sudo project-manager${NC}"

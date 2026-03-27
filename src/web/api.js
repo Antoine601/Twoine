@@ -14,6 +14,7 @@ import fileManager from '../modules/fileManager.js';
 import databases from '../modules/databases.js';
 import aiModels from '../modules/aiModels.js';
 import apiKeys from '../modules/apiKeys.js';
+import nginx from '../modules/nginx.js';
 import multer from 'multer';
 import path from 'path';
 import https from 'https';
@@ -2297,6 +2298,141 @@ router.post('/import', async (req, res) => {
         });
     } catch (error) {
         logger.error(`API Import: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// NGINX
+// ============================================
+
+/**
+ * GET /api/nginx/configs - Liste toutes les configurations Nginx
+ */
+router.get('/nginx/configs', (req, res) => {
+    try {
+        const configs = nginx.listNginxConfigs();
+        res.json({ success: true, data: configs });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/nginx/configs/:id - Détails d'une configuration
+ */
+router.get('/nginx/configs/:id', (req, res) => {
+    try {
+        const config = nginx.getNginxConfig(req.params.id);
+        if (!config) {
+            return res.status(404).json({ success: false, error: 'Configuration non trouvée' });
+        }
+        res.json({ success: true, data: config });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/nginx/configs/:id/content - Lire le contenu d'une configuration
+ */
+router.get('/nginx/configs/:id/content', (req, res) => {
+    try {
+        const content = nginx.readNginxConfigFile(req.params.id);
+        res.json({ success: true, data: content });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/nginx/configs - Créer une configuration Nginx
+ */
+router.post('/nginx/configs', async (req, res) => {
+    try {
+        const { domain, port, description } = req.body;
+        if (!domain || !port) {
+            return res.status(400).json({ success: false, error: 'Domaine et port requis' });
+        }
+
+        const config = await nginx.createNginxConfig(domain, port, description);
+        res.json({ success: true, data: config });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * PUT /api/nginx/configs/:id/content - Mettre à jour le contenu d'une configuration
+ */
+router.put('/nginx/configs/:id/content', async (req, res) => {
+    try {
+        const { content } = req.body;
+        if (!content) {
+            return res.status(400).json({ success: false, error: 'Contenu requis' });
+        }
+
+        await nginx.updateNginxConfigFile(req.params.id, content);
+        res.json({ success: true, message: 'Configuration mise à jour' });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * DELETE /api/nginx/configs/:id - Supprimer une configuration
+ */
+router.delete('/nginx/configs/:id', async (req, res) => {
+    try {
+        await nginx.deleteNginxConfig(req.params.id);
+        res.json({ success: true, message: 'Configuration supprimée' });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * PUT /api/nginx/configs/:id/toggle - Activer/Désactiver une configuration
+ */
+router.put('/nginx/configs/:id/toggle', async (req, res) => {
+    try {
+        const { enabled } = req.body;
+        const config = await nginx.toggleNginxConfig(req.params.id, enabled);
+        res.json({ success: true, data: config });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/nginx/reload - Recharger Nginx
+ */
+router.post('/nginx/reload', async (req, res) => {
+    try {
+        await nginx.reloadNginx();
+        res.json({ success: true, message: 'Nginx rechargé' });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/nginx/status - Statut de Nginx
+ */
+router.get('/nginx/status', async (req, res) => {
+    try {
+        const status = await nginx.getNginxStatus();
+        res.json({ success: true, data: status });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
         res.status(500).json({ success: false, error: error.message });
     }
 });
