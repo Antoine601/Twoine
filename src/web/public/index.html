@@ -5927,10 +5927,14 @@
         // ============================================
         function SSLPage({ showToast }) {
             const [certificates, setCertificates] = useState([]);
+            const [templates, setTemplates] = useState([]);
             const [loading, setLoading] = useState(true);
             const [showCreateModal, setShowCreateModal] = useState(false);
             const [showDetailsModal, setShowDetailsModal] = useState(false);
+            const [showTemplatesModal, setShowTemplatesModal] = useState(false);
+            const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
             const [selectedCert, setSelectedCert] = useState(null);
+            const [templateName, setTemplateName] = useState('');
             const [form, setForm] = useState({
                 domain: '',
                 country: 'FR',
@@ -5953,7 +5957,19 @@
                 setLoading(false);
             }, [showToast]);
 
-            useEffect(() => { loadCertificates(); }, [loadCertificates]);
+            const loadTemplates = useCallback(async () => {
+                try {
+                    const result = await api.get('/api/ssl/templates');
+                    if (result.success) setTemplates(result.data);
+                } catch (error) {
+                    showToast('Erreur lors du chargement des templates', 'error');
+                }
+            }, [showToast]);
+
+            useEffect(() => { 
+                loadCertificates(); 
+                loadTemplates();
+            }, [loadCertificates, loadTemplates]);
 
             async function handleCreate(e) {
                 e.preventDefault();
@@ -6033,6 +6049,70 @@
                 }
             }
 
+            async function handleSaveTemplate(e) {
+                e.preventDefault();
+                if (!templateName.trim()) {
+                    showToast('Le nom du template est requis', 'error');
+                    return;
+                }
+
+                try {
+                    const result = await api.post('/api/ssl/templates', {
+                        name: templateName,
+                        country: form.country,
+                        state: form.state,
+                        city: form.city,
+                        organization: form.organization,
+                        organizationalUnit: form.organizationalUnit,
+                        email: form.email,
+                        validityDays: form.validityDays
+                    });
+
+                    if (result.success) {
+                        showToast('Template sauvegardé avec succès', 'success');
+                        setShowSaveTemplateModal(false);
+                        setTemplateName('');
+                        loadTemplates();
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
+            }
+
+            async function handleLoadTemplate(template) {
+                setForm({
+                    domain: '',
+                    country: template.country || 'FR',
+                    state: template.state || '',
+                    city: template.city || '',
+                    organization: template.organization || '',
+                    organizationalUnit: template.organizationalUnit || '',
+                    email: template.email || '',
+                    validityDays: template.validityDays || 365
+                });
+                setShowTemplatesModal(false);
+                setShowCreateModal(true);
+                showToast(`Template "${template.name}" chargé`, 'success');
+            }
+
+            async function handleDeleteTemplate(templateId) {
+                if (!confirm('Supprimer ce template ?')) return;
+
+                try {
+                    const result = await api.del(`/api/ssl/templates/${templateId}`);
+                    if (result.success) {
+                        showToast('Template supprimé', 'success');
+                        loadTemplates();
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
+            }
+
             return (
                 <div className="fade-in">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
@@ -6040,13 +6120,23 @@
                             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Certificats SSL</h1>
                             <p className="text-sm sm:text-base text-gray-600 mt-1">Gestion des certificats SSL auto-signés</p>
                         </div>
-                        <button
-                            onClick={() => setShowCreateModal(true)}
-                            className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2"
-                        >
-                            <Icon name="plus" size={16} />
-                            <span>Nouveau certificat</span>
-                        </button>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => setShowTemplatesModal(true)}
+                                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2"
+                                title="Gérer les templates"
+                            >
+                                <Icon name="file-text" size={16} />
+                                <span className="hidden sm:inline">Templates</span>
+                            </button>
+                            <button
+                                onClick={() => setShowCreateModal(true)}
+                                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2"
+                            >
+                                <Icon name="plus" size={16} />
+                                <span>Nouveau certificat</span>
+                            </button>
+                        </div>
                     </div>
 
                     {loading ? (
@@ -6281,15 +6371,171 @@
                                         <button
                                             type="button"
                                             onClick={() => setShowCreateModal(false)}
-                                            className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                                            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                                         >
                                             Annuler
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setShowCreateModal(false);
+                                                setShowSaveTemplateModal(true);
+                                            }}
+                                            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2"
+                                            title="Sauvegarder comme template"
+                                        >
+                                            <Icon name="save" size={16} />
+                                            <span className="hidden sm:inline">Sauvegarder template</span>
                                         </button>
                                         <button
                                             type="submit"
                                             className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
                                         >
                                             Générer le certificat
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Templates Modal */}
+                    {showTemplatesModal && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                                <div className="p-6 border-b border-gray-200">
+                                    <h2 className="text-xl font-bold text-gray-900">Templates SSL</h2>
+                                    <p className="text-sm text-gray-600 mt-1">Gérez vos templates de certificats</p>
+                                </div>
+                                <div className="p-6">
+                                    {templates.length === 0 ? (
+                                        <div className="text-center py-8">
+                                            <Icon name="file-text" size={48} className="mx-auto text-gray-400 mb-4" />
+                                            <p className="text-gray-600">Aucun template sauvegardé</p>
+                                            <p className="text-sm text-gray-500 mt-2">Créez un certificat et sauvegardez-le comme template</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {templates.map(template => (
+                                                <div key={template.id} className="border border-gray-200 rounded-lg p-4 hover:border-primary-300 transition-colors">
+                                                    <div className="flex items-start justify-between gap-4">
+                                                        <div className="flex-1 min-w-0">
+                                                            <h3 className="font-semibold text-gray-900 mb-2">{template.name}</h3>
+                                                            <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                                                                {template.organization && (
+                                                                    <div className="flex items-center gap-1">
+                                                                        <Icon name="building" size={12} />
+                                                                        <span className="truncate">{template.organization}</span>
+                                                                    </div>
+                                                                )}
+                                                                {template.country && (
+                                                                    <div className="flex items-center gap-1">
+                                                                        <Icon name="map-pin" size={12} />
+                                                                        <span>{template.country}</span>
+                                                                    </div>
+                                                                )}
+                                                                {template.email && (
+                                                                    <div className="flex items-center gap-1">
+                                                                        <Icon name="mail" size={12} />
+                                                                        <span className="truncate">{template.email}</span>
+                                                                    </div>
+                                                                )}
+                                                                <div className="flex items-center gap-1">
+                                                                    <Icon name="calendar" size={12} />
+                                                                    <span>{template.validityDays} jours</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex gap-2 shrink-0">
+                                                            <button
+                                                                onClick={() => handleLoadTemplate(template)}
+                                                                className="px-3 py-1.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm flex items-center gap-1"
+                                                            >
+                                                                <Icon name="check" size={14} />
+                                                                Utiliser
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleDeleteTemplate(template.id)}
+                                                                className="px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors text-sm"
+                                                            >
+                                                                <Icon name="trash-2" size={14} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="p-6 border-t border-gray-200">
+                                    <button
+                                        onClick={() => setShowTemplatesModal(false)}
+                                        className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                                    >
+                                        Fermer
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Save Template Modal */}
+                    {showSaveTemplateModal && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+                                <div className="p-6 border-b border-gray-200">
+                                    <h2 className="text-xl font-bold text-gray-900">Sauvegarder comme template</h2>
+                                    <p className="text-sm text-gray-600 mt-1">Donnez un nom à ce template</p>
+                                </div>
+                                <form onSubmit={handleSaveTemplate} className="p-6">
+                                    <div className="mb-6">
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Nom du template *
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={templateName}
+                                            onChange={(e) => setTemplateName(e.target.value)}
+                                            placeholder="Ex: Mon Entreprise - Standard"
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                            required
+                                            autoFocus
+                                        />
+                                        <p className="text-xs text-gray-500 mt-2">
+                                            Le template sauvegardera tous les champs sauf le domaine
+                                        </p>
+                                    </div>
+                                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6">
+                                        <div className="flex gap-2">
+                                            <Icon name="info" size={16} className="text-blue-600 shrink-0 mt-0.5" />
+                                            <div className="text-sm text-blue-800">
+                                                <p className="font-medium mb-1">Informations sauvegardées</p>
+                                                <ul className="text-xs space-y-1">
+                                                    {form.organization && <li>• Organisation: {form.organization}</li>}
+                                                    {form.country && <li>• Pays: {form.country}</li>}
+                                                    {form.email && <li>• Email: {form.email}</li>}
+                                                    <li>• Durée: {form.validityDays} jours</li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setShowSaveTemplateModal(false);
+                                                setTemplateName('');
+                                                setShowCreateModal(true);
+                                            }}
+                                            className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                                        >
+                                            Annuler
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                                        >
+                                            Sauvegarder
                                         </button>
                                     </div>
                                 </form>

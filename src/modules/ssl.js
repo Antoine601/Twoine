@@ -12,11 +12,13 @@ const SSL_DIR = '/etc/ssl/twoine';
 const SSL_CERTS_DIR = path.join(SSL_DIR, 'certs');
 const SSL_KEYS_DIR = path.join(SSL_DIR, 'private');
 const SSL_DB_FILE = path.join(SSL_DIR, 'certificates.json');
+const SSL_TEMPLATES_FILE = path.join(SSL_DIR, 'templates.json');
 
 class SSLManager {
     constructor() {
         this.ensureDirectories();
         this.loadDatabase();
+        this.loadTemplates();
     }
 
     ensureDirectories() {
@@ -242,6 +244,99 @@ class SSLManager {
         } catch (error) {
             return false;
         }
+    }
+
+    // ============================================
+    // GESTION DES TEMPLATES
+    // ============================================
+
+    loadTemplates() {
+        try {
+            if (fs.existsSync(SSL_TEMPLATES_FILE)) {
+                const data = fs.readFileSync(SSL_TEMPLATES_FILE, 'utf8');
+                this.templates = JSON.parse(data);
+            } else {
+                this.templates = [];
+                this.saveTemplates();
+            }
+        } catch (error) {
+            logger.error(`Erreur lors du chargement des templates SSL: ${error.message}`);
+            this.templates = [];
+        }
+    }
+
+    saveTemplates() {
+        try {
+            fs.writeFileSync(SSL_TEMPLATES_FILE, JSON.stringify(this.templates, null, 2), { mode: 0o644 });
+        } catch (error) {
+            logger.error(`Erreur lors de la sauvegarde des templates SSL: ${error.message}`);
+            throw error;
+        }
+    }
+
+    getAllTemplates() {
+        return this.templates;
+    }
+
+    getTemplateById(id) {
+        return this.templates.find(template => template.id === id);
+    }
+
+    createTemplate(options) {
+        const {
+            name,
+            country = 'FR',
+            state = '',
+            city = '',
+            organization = '',
+            organizationalUnit = '',
+            email = '',
+            validityDays = 365
+        } = options;
+
+        if (!name) {
+            throw new Error('Le nom du template est requis');
+        }
+
+        // Vérifier si un template avec ce nom existe déjà
+        if (this.templates.some(t => t.name === name)) {
+            throw new Error('Un template avec ce nom existe déjà');
+        }
+
+        const id = uuidv4();
+        const createdAt = new Date().toISOString();
+
+        const template = {
+            id,
+            name,
+            country,
+            state,
+            city,
+            organization,
+            organizationalUnit,
+            email,
+            validityDays,
+            createdAt
+        };
+
+        this.templates.push(template);
+        this.saveTemplates();
+
+        logger.info(`Template SSL créé: ${name}`);
+        return template;
+    }
+
+    deleteTemplate(id) {
+        const template = this.getTemplateById(id);
+        if (!template) {
+            throw new Error('Template non trouvé');
+        }
+
+        this.templates = this.templates.filter(t => t.id !== id);
+        this.saveTemplates();
+
+        logger.info(`Template SSL supprimé: ${template.name}`);
+        return true;
     }
 }
 

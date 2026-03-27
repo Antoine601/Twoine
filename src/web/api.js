@@ -2638,4 +2638,88 @@ router.delete('/ssl/certificates/:id', (req, res) => {
     }
 });
 
+// ============================================
+// SSL TEMPLATES
+// ============================================
+
+/**
+ * GET /api/ssl/templates - Liste tous les templates SSL
+ */
+router.get('/ssl/templates', (req, res) => {
+    try {
+        const templates = ssl.getAllTemplates();
+        res.json({ success: true, data: templates });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/ssl/templates/:id - Détails d'un template
+ */
+router.get('/ssl/templates/:id', (req, res) => {
+    try {
+        const template = ssl.getTemplateById(req.params.id);
+        if (!template) {
+            return res.status(404).json({ success: false, error: 'Template non trouvé' });
+        }
+        res.json({ success: true, data: template });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/ssl/templates - Créer un template SSL
+ */
+router.post('/api/ssl/templates', (req, res) => {
+    try {
+        const {
+            name,
+            country,
+            state,
+            city,
+            organization,
+            organizationalUnit,
+            email,
+            validityDays
+        } = req.body;
+
+        if (!name) {
+            return res.status(400).json({ success: false, error: 'Nom du template requis' });
+        }
+
+        const template = ssl.createTemplate({
+            name,
+            country,
+            state,
+            city,
+            organization,
+            organizationalUnit,
+            email,
+            validityDays
+        });
+
+        res.json({ success: true, data: template });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * DELETE /api/ssl/templates/:id - Supprimer un template SSL
+ */
+router.delete('/ssl/templates/:id', (req, res) => {
+    try {
+        ssl.deleteTemplate(req.params.id);
+        res.json({ success: true, message: 'Template supprimé' });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
 export default router;
