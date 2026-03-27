@@ -2353,12 +2353,32 @@ router.get('/nginx/configs/:id/content', (req, res) => {
  */
 router.post('/nginx/configs', async (req, res) => {
     try {
-        const { domain, port, description } = req.body;
+        const { 
+            domain, 
+            port, 
+            description,
+            useSSL,
+            sslCertPath,
+            sslKeyPath,
+            redirectHTTP,
+            targetHost,
+            targetProtocol
+        } = req.body;
+        
         if (!domain || !port) {
             return res.status(400).json({ success: false, error: 'Domaine et port requis' });
         }
 
-        const config = await nginx.createNginxConfig(domain, port, description);
+        const options = {
+            useSSL: useSSL || false,
+            sslCertPath: sslCertPath || '',
+            sslKeyPath: sslKeyPath || '',
+            redirectHTTP: redirectHTTP || false,
+            targetHost: targetHost || 'localhost',
+            targetProtocol: targetProtocol || 'http'
+        };
+
+        const config = await nginx.createNginxConfig(domain, port, description, options);
         res.json({ success: true, data: config });
     } catch (error) {
         logger.error(`API: ${error.message}`);

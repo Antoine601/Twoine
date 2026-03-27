@@ -59,30 +59,77 @@ function getConfigFileName(domain) {
 /**
  * Générer le contenu d'une configuration Nginx
  */
-function generateNginxConfig(domain, port) {
-    return `server {
-    listen 80;
+function generateNginxConfig(domain, port, options = {}) {
+    const {
+        useSSL = false,
+        sslCertPath = '',
+        sslKeyPath = '',
+        redirectHTTP = false,
+        targetHost = 'localhost',
+        targetProtocol = 'http'
+    } = options;
+
+    let config = '';
+
+    // Configuration HTTPS si SSL activé
+    if (useSSL) {
+        config += `server {
+    listen 443 ssl;
     server_name ${domain};
 
+    ssl_certificate     ${sslCertPath};
+    ssl_certificate_key ${sslKeyPath};
+
     location / {
-        proxy_pass http://localhost:${port};
+        proxy_pass ${targetProtocol}://${targetHost}:${port};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
+        proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
+    }
+}
+
+`;
+
+        // Redirection HTTP vers HTTPS si activée
+        if (redirectHTTP) {
+            config += `server {
+    listen 80;
+    server_name ${domain};
+    return 301 https://$host$request_uri;
+}
+`;
+        }
+    } else {
+        // Configuration HTTP simple
+        config += `server {
+    listen 80;
+    server_name ${domain};
+
+    location / {
+        proxy_pass ${targetProtocol}://${targetHost}:${port};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 `;
+    }
+
+    return config;
 }
 
 /**
  * Créer une nouvelle configuration Nginx
  */
-async function createNginxConfig(domain, port, description = '') {
+async function createNginxConfig(domain, port, description = '', options = {}) {
     if (!domain || !port) {
         throw new Error('Domaine et port requis');
     }
@@ -99,7 +146,7 @@ async function createNginxConfig(domain, port, description = '') {
     const enabledPath = path.join(NGINX_SITES_ENABLED, fileName);
 
     // Générer et écrire la configuration
-    const configContent = generateNginxConfig(domain, port);
+    const configContent = generateNginxConfig(domain, port, options);
     fs.writeFileSync(availablePath, configContent);
 
     // Créer le lien symbolique pour activer
@@ -131,13 +178,20 @@ async function createNginxConfig(domain, port, description = '') {
         description,
         fileName,
         createdAt: new Date().toISOString(),
-        enabled: true
+        enabled: true,
+        useSSL: options.useSSL || false,
+        sslCertPath: options.sslCertPath || '',
+        sslKeyPath: options.sslKeyPath || '',
+        redirectHTTP: options.redirectHTTP || false,
+        targetHost: options.targetHost || 'localhost',
+        targetProtocol: options.targetProtocol || 'http'
     };
 
     configs.push(newConfig);
     saveNginxConfigs(configs);
 
-    logger.info(`Configuration Nginx créée: ${domain} -> localhost:${port}`);
+    const target = `${options.targetProtocol || 'http'}://${options.targetHost || 'localhost'}:${port}`;
+    logger.info(`Configuration Nginx créée: ${domain} -> ${target}`);
     return newConfig;
 }
 
