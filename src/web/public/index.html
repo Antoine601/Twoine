@@ -1953,6 +1953,34 @@
                 loadNginxConfigs();
             }, [service.port, service.name, projectName]);
 
+            async function handleDeleteNginxConfig(configId) {
+                if (!confirm('Voulez-vous vraiment supprimer cette configuration Nginx ?')) {
+                    return;
+                }
+                
+                try {
+                    const result = await api.delete(`/api/nginx/configs/${configId}`);
+                    if (result.success) {
+                        showToast('Configuration Nginx supprimée', 'success');
+                        // Recharger les configurations
+                        const refreshResult = await api.get('/api/nginx/configs');
+                        if (refreshResult.success) {
+                            const servicePort = service.port || '8000';
+                            const matchingConfigs = refreshResult.data.filter(config => 
+                                config.port === servicePort || 
+                                config.description?.includes(service.name) ||
+                                config.description?.includes(projectName)
+                            );
+                            setExistingNginxConfigs(matchingConfigs);
+                        }
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
+            }
+
             async function handleSubmit(e) {
                 e.preventDefault();
                 setLoading(true);
@@ -2041,6 +2069,13 @@
                             <input type="text" value={form.description} onChange={e => setForm({...form, description: e.target.value})}
                                 className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm" />
                         </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-2">
+                                <Icon name="network" size={14} /> Port
+                            </label>
+                            <input type="number" value={form.port} onChange={e => setForm({...form, port: e.target.value})} placeholder="8000"
+                                className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm" />
+                        </div>
 
                         {/* Configuration Nginx */}
                         <div className="pt-4 border-t border-gray-200">
@@ -2075,6 +2110,14 @@
                                                             <p className="text-xs text-gray-500 mt-1">{config.description}</p>
                                                         )}
                                                     </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleDeleteNginxConfig(config.id)}
+                                                        className="p-1.5 text-red-600 hover:bg-red-100 rounded-lg transition-colors shrink-0"
+                                                        title="Supprimer cette configuration"
+                                                    >
+                                                        <Icon name="trash-2" size={14} />
+                                                    </button>
                                                 </div>
                                             </div>
                                         ))}
