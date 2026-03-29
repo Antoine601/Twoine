@@ -1256,6 +1256,26 @@
             );
         }
 
+        /**
+         * Config Nginx affichée pour un service : uniquement celle liée à ce service (pas tout le projet).
+         */
+        function nginxConfigBelongsToService(config, projectName, serviceName) {
+            if (config.linkedProject && config.linkedService) {
+                return config.linkedProject === projectName && config.linkedService === serviceName;
+            }
+            const expected = `${projectName} - ${serviceName}`;
+            return (config.description || '').trim() === expected;
+        }
+
+        /** Toutes les configs Nginx rattachées à un projet (récap onglet projet). */
+        function nginxConfigsForProject(allConfigs, projectName) {
+            const prefix = `${projectName} - `;
+            return (allConfigs || []).filter(c =>
+                c.linkedProject === projectName ||
+                (!c.linkedProject && (c.description || '').startsWith(prefix))
+            );
+        }
+
         // ============================================
         // Project Detail Page
         // ============================================
@@ -1270,15 +1290,32 @@
             const [deleteServiceTarget, setDeleteServiceTarget] = useState(null);
             const [actionLoading, setActionLoading] = useState(null);
             const [projectDatabase, setProjectDatabase] = useState(null);
+            const [projectNginxConfigs, setProjectNginxConfigs] = useState([]);
+            const [nginxConfigsLoading, setNginxConfigsLoading] = useState(false);
+
+            const loadProjectNginxConfigs = useCallback(async () => {
+                setNginxConfigsLoading(true);
+                try {
+                    const result = await api.get('/api/nginx/configs');
+                    if (result.success) {
+                        setProjectNginxConfigs(nginxConfigsForProject(result.data, projectName));
+                    }
+                } catch (e) {
+                    console.error(e);
+                } finally {
+                    setNginxConfigsLoading(false);
+                }
+            }, [projectName]);
 
             const loadProject = useCallback(async () => {
                 const result = await api.get(`/api/projects/${projectName}`);
                 if (result.success) {
                     setProject(result.data);
                     loadProjectDatabase();
+                    loadProjectNginxConfigs();
                 }
                 setLoading(false);
-            }, [projectName]);
+            }, [projectName, loadProjectNginxConfigs]);
 
             const loadProjectDatabase = async () => {
                 const result = await api.get('/api/databases');
@@ -1355,6 +1392,7 @@
                 { id: 'services', label: 'Services', icon: 'boxes', count: svcList.length },
                 { id: 'info', label: 'Informations', icon: 'info' },
                 { id: 'scripts', label: 'Scripts', icon: 'terminal' },
+                { id: 'nginx-config', label: 'Config Nginx', icon: 'globe', count: projectNginxConfigs.length },
             ];
 
             return (
@@ -1420,7 +1458,7 @@
                     </div>
 
                     {/* Tabs */}
-                    <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-5 w-fit">
+                    <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-5 w-fit max-w-full flex-wrap">
                         {tabs.map(tab => (
                             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === tab.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
@@ -1610,6 +1648,71 @@
                         </div>
                     )}
 
+                    {/* Tab: Config Nginx (récapitulatif) */}
+                    {activeTab === 'nginx-config' && (
+                        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+                            <div className="px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                <div>
+                                    <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+                                        <Icon name="globe" size={17} className="text-primary-600" /> Config Nginx
+                                    </h2>
+                                    <p className="text-xs text-gray-500 mt-1">Configurations liées à ce projet (un service peut avoir sa propre config).</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => onNavigate('nginx')}
+                                    className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-xs font-medium transition-colors shrink-0"
+                                >
+                                    <Icon name="external-link" size={14} /> Ouvrir la page Nginx
+                                </button>
+                            </div>
+                            {nginxConfigsLoading ? (
+                                <div className="flex items-center justify-center py-16 text-gray-500 gap-2">
+                                    <Icon name="loader-2" size={20} className="animate-spin" />
+                                    <span className="text-sm">Chargement...</span>
+                                </div>
+                            ) : projectNginxConfigs.length === 0 ? (
+                                <div className="px-6 py-14 text-center">
+                                    <Icon name="globe" size={40} className="mx-auto text-gray-300 mb-3" />
+                                    <p className="text-gray-700 font-medium">Aucune configuration Nginx pour ce projet</p>
+                                    <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">Créez une config depuis le menu d’un service (modifier le service) ou depuis la page Nginx.</p>
+                                </div>
+                            ) : (
+                                <div className="divide-y divide-gray-100">
+                                    {projectNginxConfigs.map((cfg) => {
+                                        const svcLabel = cfg.linkedService || (cfg.description && cfg.description.startsWith(`${projectName} - `)
+                                            ? cfg.description.slice(`${projectName} - `.length)
+                                            : '—');
+                                        return (
+                                            <div key={cfg.id} className="px-6 py-4 hover:bg-gray-50/70 transition-colors">
+                                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <span className="font-semibold text-gray-900 truncate">{cfg.domain}</span>
+                                                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cfg.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
+                                                                {cfg.enabled ? 'Activé' : 'Désactivé'}
+                                                            </span>
+                                                            {cfg.useSSL && (
+                                                                <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">SSL</span>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-gray-600">
+                                                            <span className="flex items-center gap-1"><Icon name="package" size={12} className="text-gray-400" /> Service : <strong className="text-gray-800">{svcLabel}</strong></span>
+                                                            <span className="flex items-center gap-1"><Icon name="arrow-right" size={12} className="text-gray-400" /> Proxy : {(cfg.targetProtocol || 'http')}://{cfg.targetHost || 'localhost'} — port {cfg.port}</span>
+                                                        </div>
+                                                        {cfg.description && (
+                                                            <p className="text-xs text-gray-400 mt-1.5 truncate" title={cfg.description}>{cfg.description}</p>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {/* Modals */}
                     {showAddService && <AddServiceModal projectName={projectName} onClose={() => setShowAddService(false)} onSuccess={() => { setShowAddService(false); loadProject(); }} showToast={showToast} />}
                     {showEditService && <EditServiceModal projectName={projectName} service={showEditService} onClose={() => setShowEditService(null)} onSuccess={() => { setShowEditService(null); loadProject(); }} showToast={showToast} />}
@@ -1782,7 +1885,9 @@
                             sslKeyPath: form.nginxSslKeyPath,
                             redirectHTTP: form.nginxRedirectHTTP,
                             targetHost: form.nginxTargetHost,
-                            targetProtocol: form.nginxTargetProtocol
+                            targetProtocol: form.nginxTargetProtocol,
+                            linkedProject: projectName,
+                            linkedService: form.name
                         });
                         
                         if (nginxResult.success) {
@@ -2170,11 +2275,8 @@
                     try {
                         const result = await api.get('/api/nginx/configs');
                         if (result.success) {
-                            const servicePort = service.port || '8000';
-                            const matchingConfigs = result.data.filter(config => 
-                                config.port === servicePort || 
-                                config.description?.includes(service.name) ||
-                                config.description?.includes(projectName)
+                            const matchingConfigs = result.data.filter(config =>
+                                nginxConfigBelongsToService(config, projectName, service.name)
                             );
                             setExistingNginxConfigs(matchingConfigs);
                         }
@@ -2198,11 +2300,8 @@
                         // Recharger les configurations
                         const refreshResult = await api.get('/api/nginx/configs');
                         if (refreshResult.success) {
-                            const servicePort = service.port || '8000';
-                            const matchingConfigs = refreshResult.data.filter(config => 
-                                config.port === servicePort || 
-                                config.description?.includes(service.name) ||
-                                config.description?.includes(projectName)
+                            const matchingConfigs = refreshResult.data.filter(config =>
+                                nginxConfigBelongsToService(config, projectName, service.name)
                             );
                             setExistingNginxConfigs(matchingConfigs);
                         }
@@ -2240,7 +2339,9 @@
                             sslKeyPath: form.nginxSslKeyPath,
                             redirectHTTP: form.nginxRedirectHTTP,
                             targetHost: form.nginxTargetHost,
-                            targetProtocol: form.nginxTargetProtocol
+                            targetProtocol: form.nginxTargetProtocol,
+                            linkedProject: projectName,
+                            linkedService: service.name
                         });
                         
                         if (nginxResult.success) {

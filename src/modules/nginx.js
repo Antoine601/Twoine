@@ -180,8 +180,9 @@ async function createNginxConfig(domain, port, description = '', options = {}) {
     const availablePath = path.join(NGINX_SITES_AVAILABLE, fileName);
     const enabledPath = path.join(NGINX_SITES_ENABLED, fileName);
 
-    // Générer et écrire la configuration
-    const configContent = generateNginxConfig(domain, port, options);
+    // Générer et écrire la configuration (linked* exclus du bloc nginx généré)
+    const { linkedProject: _lp, linkedService: _ls, ...nginxOpts } = options || {};
+    const configContent = generateNginxConfig(domain, port, nginxOpts);
     fs.writeFileSync(availablePath, configContent);
 
     // Créer le lien symbolique pour activer
@@ -219,7 +220,9 @@ async function createNginxConfig(domain, port, description = '', options = {}) {
         sslKeyPath: options.sslKeyPath || '',
         redirectHTTP: options.redirectHTTP || false,
         targetHost: options.targetHost || 'localhost',
-        targetProtocol: options.targetProtocol || 'http'
+        targetProtocol: options.targetProtocol || 'http',
+        linkedProject: options.linkedProject || '',
+        linkedService: options.linkedService || ''
     };
 
     configs.push(newConfig);

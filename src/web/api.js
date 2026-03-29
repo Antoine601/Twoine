@@ -2363,7 +2363,9 @@ router.post('/nginx/configs', async (req, res) => {
             sslKeyPath,
             redirectHTTP,
             targetHost,
-            targetProtocol
+            targetProtocol,
+            linkedProject,
+            linkedService
         } = req.body;
         
         if (!domain || !port) {
@@ -2376,7 +2378,9 @@ router.post('/nginx/configs', async (req, res) => {
             sslKeyPath: sslKeyPath || '',
             redirectHTTP: redirectHTTP || false,
             targetHost: targetHost || 'localhost',
-            targetProtocol: targetProtocol || 'http'
+            targetProtocol: targetProtocol || 'http',
+            linkedProject: linkedProject || '',
+            linkedService: linkedService || ''
         };
 
         const config = await nginx.createNginxConfig(domain, port, description, options);
