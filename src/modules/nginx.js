@@ -261,6 +261,111 @@ async function updateNginxConfigFile(id, content) {
 }
 
 /**
+ * Mettre à jour une configuration Nginx (métadonnées + régénération du fichier site)
+ */
+async function updateNginxConfig(id, domain, port, description = '', options = {}) {
+    if (!domain || port == null || port === '') {
+        throw new Error('Domaine et port requis');
+    }
+
+    const configs = loadNginxConfigs();
+    const idx = configs.findIndex(c => c.id === id);
+    if (idx === -1) {
+        throw new Error('Configuration non trouvée');
+    }
+
+    if (configs.some(c => c.domain === domain && c.id !== id)) {
+        throw new Error(`Une configuration existe déjà pour ${domain}`);
+    }
+
+    const existing = configs[idx];
+    const portNum = parseInt(port, 10);
+    const oldFileName = existing.fileName;
+    const newFileName = getConfigFileName(domain);
+    const oldAvail = path.join(NGINX_SITES_AVAILABLE, oldFileName);
+    const oldEn = path.join(NGINX_SITES_ENABLED, oldFileName);
+    const newAvail = path.join(NGINX_SITES_AVAILABLE, newFileName);
+    const newEn = path.join(NGINX_SITES_ENABLED, newFileName);
+
+    let oldContent = null;
+    if (fs.existsSync(oldAvail)) {
+        oldContent = fs.readFileSync(oldAvail, 'utf8');
+    }
+
+    const newContent = generateNginxConfig(domain, portNum, options);
+    const wasEnabled = existing.enabled !== false;
+
+    try {
+        if (oldFileName !== newFileName) {
+            if (fs.existsSync(oldEn)) {
+                fs.unlinkSync(oldEn);
+            }
+            if (fs.existsSync(oldAvail)) {
+                fs.unlinkSync(oldAvail);
+            }
+        }
+
+        fs.writeFileSync(newAvail, newContent);
+
+        if (wasEnabled) {
+            if (fs.existsSync(newEn)) {
+                fs.unlinkSync(newEn);
+            }
+            fs.symlinkSync(newAvail, newEn);
+        } else if (fs.existsSync(newEn)) {
+            fs.unlinkSync(newEn);
+        }
+
+        await shell.execCommand('nginx -t');
+        await reloadNginx();
+
+        const updated = {
+            ...existing,
+            domain,
+            port: portNum,
+            description: description !== undefined && description !== null ? description : existing.description,
+            fileName: newFileName,
+            useSSL: options.useSSL || false,
+            sslCertPath: options.sslCertPath || '',
+            sslKeyPath: options.sslKeyPath || '',
+            redirectHTTP: options.redirectHTTP || false,
+            targetHost: options.targetHost || 'localhost',
+            targetProtocol: options.targetProtocol || 'http'
+        };
+        configs[idx] = updated;
+        saveNginxConfigs(configs);
+
+        logger.info(`Configuration Nginx mise à jour: ${domain}`);
+        return updated;
+    } catch (error) {
+        try {
+            if (oldFileName !== newFileName) {
+                if (fs.existsSync(newEn)) {
+                    fs.unlinkSync(newEn);
+                }
+                if (fs.existsSync(newAvail)) {
+                    fs.unlinkSync(newAvail);
+                }
+                if (oldContent !== null) {
+                    fs.writeFileSync(oldAvail, oldContent);
+                    if (wasEnabled) {
+                        if (fs.existsSync(oldEn)) {
+                            fs.unlinkSync(oldEn);
+                        }
+                        fs.symlinkSync(oldAvail, oldEn);
+                    }
+                }
+            } else if (oldContent !== null) {
+                fs.writeFileSync(oldAvail, oldContent);
+            }
+        } catch (rollbackErr) {
+            logger.error(`Rollback Nginx échoué: ${rollbackErr.message}`);
+        }
+        throw new Error(`Erreur lors de la mise à jour: ${error.message}`);
+    }
+}
+
+/**
  * Supprimer une configuration
  */
 async function deleteNginxConfig(id) {
@@ -427,6 +532,7 @@ export default {
     getNginxConfig,
     readNginxConfigFile,
     updateNginxConfigFile,
+    updateNginxConfig,
     deleteNginxConfig,
     toggleNginxConfig,
     reloadNginx,
