@@ -2074,6 +2074,9 @@
                 createNginxConfig: false,
                 nginxDomain: '',
                 nginxUseSSL: false,
+                nginxSslCertId: '',
+                nginxSslMode: 'select',
+                nginxSslTemplateId: '',
                 nginxSslCertPath: '',
                 nginxSslKeyPath: '',
                 nginxRedirectHTTP: false,
@@ -2083,6 +2086,84 @@
             const [loading, setLoading] = useState(false);
             const [existingNginxConfigs, setExistingNginxConfigs] = useState([]);
             const [loadingNginxConfigs, setLoadingNginxConfigs] = useState(true);
+            const [sslCertificates, setSslCertificates] = useState([]);
+            const [sslTemplates, setSslTemplates] = useState([]);
+            const [generatingCert, setGeneratingCert] = useState(false);
+
+            useEffect(() => {
+                if (form.createNginxConfig && form.nginxUseSSL) {
+                    loadSslData();
+                }
+            }, [form.createNginxConfig, form.nginxUseSSL]);
+
+            async function loadSslData() {
+                try {
+                    const [certsResult, templatesResult] = await Promise.all([
+                        api.get('/api/ssl/certificates'),
+                        api.get('/api/ssl/templates')
+                    ]);
+                    if (certsResult.success) setSslCertificates(certsResult.data);
+                    if (templatesResult.success) setSslTemplates(templatesResult.data);
+                } catch (error) {
+                    console.error('Erreur chargement SSL:', error);
+                }
+            }
+
+            async function handleGenerateCertificate() {
+                if (!form.nginxDomain) {
+                    showToast('Veuillez d\'abord renseigner le domaine', 'warning');
+                    return;
+                }
+                if (!form.nginxSslTemplateId) {
+                    showToast('Veuillez sélectionner un template', 'warning');
+                    return;
+                }
+
+                setGeneratingCert(true);
+                try {
+                    const template = sslTemplates.find(t => t.id === form.nginxSslTemplateId);
+                    const result = await api.post('/api/ssl/certificates', {
+                        domain: form.nginxDomain,
+                        country: template.country,
+                        state: template.state,
+                        city: template.city,
+                        organization: template.organization,
+                        organizationalUnit: template.organizationalUnit,
+                        email: template.email,
+                        validityDays: template.validityDays
+                    });
+
+                    if (result.success) {
+                        showToast('Certificat généré avec succès', 'success');
+                        await loadSslData();
+                        setForm({
+                            ...form,
+                            nginxSslCertId: result.data.id,
+                            nginxSslCertPath: result.data.certPath,
+                            nginxSslKeyPath: result.data.keyPath,
+                            nginxSslMode: 'select'
+                        });
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                } finally {
+                    setGeneratingCert(false);
+                }
+            }
+
+            function handleSslCertificateSelect(certId) {
+                const cert = sslCertificates.find(c => c.id === certId);
+                if (cert) {
+                    setForm({
+                        ...form,
+                        nginxSslCertId: certId,
+                        nginxSslCertPath: cert.certPath,
+                        nginxSslKeyPath: cert.keyPath
+                    });
+                }
+            }
 
             useEffect(() => {
                 async function loadNginxConfigs() {
@@ -2342,58 +2423,139 @@
                                             </select>
                                         </div>
                                     </div>
-                                    <div>
-                                        <label className="flex items-center gap-2 cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                checked={form.nginxUseSSL}
-                                                onChange={(e) => setForm({...form, nginxUseSSL: e.target.checked})}
-                                                className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-                                            />
-                                            <span className="text-xs text-gray-700">Activer SSL/HTTPS</span>
-                                        </label>
-                                    </div>
-                                    {form.nginxUseSSL && (
-                                        <div className="space-y-2 pl-4">
-                                            <div>
-                                                <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                    Certificat SSL *
-                                                </label>
+
+                                    <div className="space-y-4 pt-4 border-t border-gray-200">
+                                        <div className="flex items-center justify-between">
+                                            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                                                <Icon name="shield" size={16} />
+                                                SSL/HTTPS
+                                            </h3>
+                                            <label className="flex items-center gap-2 cursor-pointer">
                                                 <input
-                                                    type="text"
-                                                    value={form.nginxSslCertPath}
-                                                    onChange={(e) => setForm({...form, nginxSslCertPath: e.target.value})}
-                                                    placeholder="/etc/ssl/certs/example.com-crt.pem"
-                                                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-xs font-mono"
-                                                    required={form.nginxUseSSL}
+                                                    type="checkbox"
+                                                    checked={form.nginxUseSSL}
+                                                    onChange={(e) => setForm({...form, nginxUseSSL: e.target.checked})}
+                                                    className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
                                                 />
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                    Clé privée *
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    value={form.nginxSslKeyPath}
-                                                    onChange={(e) => setForm({...form, nginxSslKeyPath: e.target.value})}
-                                                    placeholder="/etc/ssl/private/example.com-key.pem"
-                                                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-xs font-mono"
-                                                    required={form.nginxUseSSL}
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="flex items-center gap-2 cursor-pointer">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={form.nginxRedirectHTTP}
-                                                        onChange={(e) => setForm({...form, nginxRedirectHTTP: e.target.checked})}
-                                                        className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-                                                    />
-                                                    <span className="text-xs text-gray-700">Rediriger HTTP vers HTTPS</span>
-                                                </label>
-                                            </div>
+                                                <span className="text-sm text-gray-700">Activer SSL</span>
+                                            </label>
                                         </div>
-                                    )}
+
+                                        {form.nginxUseSSL && (
+                                            <div className="space-y-4 pl-6 border-l-2 border-primary-200">
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setForm({...form, nginxSslMode: 'select'})}
+                                                        className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
+                                                            form.nginxSslMode === 'select'
+                                                                ? 'bg-primary-600 text-white'
+                                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                        }`}
+                                                    >
+                                                        Sélectionner un certificat
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setForm({...form, nginxSslMode: 'generate'})}
+                                                        className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
+                                                            form.nginxSslMode === 'generate'
+                                                                ? 'bg-primary-600 text-white'
+                                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                        }`}
+                                                    >
+                                                        Générer automatiquement
+                                                    </button>
+                                                </div>
+
+                                                {form.nginxSslMode === 'select' && (
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                            Certificat SSL *
+                                                        </label>
+                                                        <select
+                                                            value={form.nginxSslCertId}
+                                                            onChange={(e) => handleSslCertificateSelect(e.target.value)}
+                                                            className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm"
+                                                            required={form.nginxUseSSL && form.nginxSslMode === 'select'}
+                                                        >
+                                                            <option value="">-- Sélectionner un certificat --</option>
+                                                            {sslCertificates.map(cert => (
+                                                                <option key={cert.id} value={cert.id}>
+                                                                    {cert.domain} ({cert.organization || 'Sans organisation'})
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                        {form.nginxSslCertId && (
+                                                            <div className="mt-2 p-2 bg-gray-50 rounded text-xs text-gray-600">
+                                                                <div className="font-mono truncate">Cert: {form.nginxSslCertPath}</div>
+                                                                <div className="font-mono truncate">Key: {form.nginxSslKeyPath}</div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {form.nginxSslMode === 'generate' && (
+                                                    <div className="space-y-3">
+                                                        <div>
+                                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                                Template *
+                                                            </label>
+                                                            <select
+                                                                value={form.nginxSslTemplateId}
+                                                                onChange={(e) => setForm({...form, nginxSslTemplateId: e.target.value})}
+                                                                className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm"
+                                                                required={form.nginxUseSSL && form.nginxSslMode === 'generate'}
+                                                            >
+                                                                <option value="">-- Sélectionner un template --</option>
+                                                                {sslTemplates.map(template => (
+                                                                    <option key={template.id} value={template.id}>
+                                                                        {template.name} ({template.organization || template.country})
+                                                                    </option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleGenerateCertificate}
+                                                            disabled={!form.nginxDomain || !form.nginxSslTemplateId || generatingCert}
+                                                            className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                                        >
+                                                            {generatingCert ? (
+                                                                <>
+                                                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                                                    Génération...
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <Icon name="zap" size={16} />
+                                                                    Générer le certificat pour {form.nginxDomain || '[domaine]'}
+                                                                </>
+                                                            )}
+                                                        </button>
+                                                        {form.nginxSslCertPath && form.nginxSslMode === 'generate' && (
+                                                            <div className="p-2 bg-green-50 border border-green-200 rounded text-sm text-green-700">
+                                                                ✓ Certificat généré avec succès
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                <div>
+                                                    <label className="flex items-center gap-2 cursor-pointer">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={form.nginxRedirectHTTP}
+                                                            onChange={(e) => setForm({...form, nginxRedirectHTTP: e.target.checked})}
+                                                            className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                                                        />
+                                                        <span className="text-sm text-gray-700">Rediriger HTTP vers HTTPS (301)</span>
+                                                    </label>
+                                                    <p className="text-xs text-gray-500 mt-1 ml-6">Recommandé pour forcer HTTPS</p>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             )}
                         </div>
