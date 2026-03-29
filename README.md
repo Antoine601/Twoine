@@ -2,13 +2,14 @@
 
 Outil de gestion de projets pour Ubuntu 22.04 avec utilisateurs SFTP chroot sécurisés, gestion PM2 et interface Web moderne.
 
-![GitHub](https://img.shields.io/badge/GitHub-Antoine601%2FTwoine-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen)
+GitHub
+License
+Node
 
 ## 🚀 Fonctionnalités
 
 ### Interface CLI
+
 - ✅ Création de projets avec utilisateurs SFTP chroot dédiés
 - ✅ Gestion des services via PM2 (start/stop/restart)
 - ✅ Génération automatique de scripts bash (start.sh, stop.sh, restart.sh, status.sh)
@@ -16,6 +17,7 @@ Outil de gestion de projets pour Ubuntu 22.04 avec utilisateurs SFTP chroot séc
 - ✅ Interface interactive avec menus colorés
 
 ### Interface Web
+
 - 🌐 Dashboard moderne avec statistiques en temps réel
 - 📊 Vue d'ensemble de tous les projets et services
 - ⚡ Gestion complète des services (démarrage, arrêt, redémarrage)
@@ -71,7 +73,7 @@ sudo npm run web
 sudo npm run web:dev
 ```
 
-L'interface web sera accessible sur **http://localhost:3847**
+L'interface web sera accessible sur **[http://localhost:3847](http://localhost:3847)**
 
 ### Mise à jour
 
@@ -110,12 +112,14 @@ Chaque projet créé aura la structure suivante :
 L'interface web expose une API REST complète :
 
 ### Projets
+
 - `GET /api/projects` - Liste tous les projets
 - `GET /api/projects/:name` - Détails d'un projet
 - `POST /api/projects` - Créer un projet
 - `DELETE /api/projects/:name` - Supprimer un projet
 
 ### Services
+
 - `GET /api/projects/:name/services` - Liste les services
 - `POST /api/projects/:name/services` - Ajouter un service
 - `PUT /api/projects/:name/services/:serviceName` - Modifier un service
@@ -126,6 +130,7 @@ L'interface web expose une API REST complète :
 - `GET /api/projects/:name/services/:serviceName/logs` - Voir les logs
 
 ### Bases de données
+
 - `GET /api/databases` - Liste toutes les bases de données
 - `GET /api/databases/:id` - Détails d'une base de données
 - `POST /api/databases/mysql` - Créer une base MySQL
@@ -137,6 +142,7 @@ L'interface web expose une API REST complète :
 - `GET /api/databases/:id/connection-string` - Obtenir la chaîne de connexion
 
 ### Éditeur de base de données
+
 - `POST /api/databases/:id/query` - Exécuter une requête SQL MySQL
 - `GET /api/databases/:id/tables` - Liste les tables MySQL
 - `GET /api/databases/:id/tables/:tableName/structure` - Structure d'une table MySQL
@@ -146,6 +152,7 @@ L'interface web expose une API REST complète :
 - `POST /api/databases/:id/import-bson` - Importer un fichier BSON dans une collection MongoDB
 
 ### Utilitaires
+
 - `GET /api/pm2/status` - Statut global PM2
 - `POST /api/regenerate-all-scripts` - Régénérer tous les scripts
 
@@ -177,6 +184,7 @@ src/
 ## 🎨 Technologies utilisées
 
 ### Backend
+
 - Node.js 20+
 - Express.js
 - PM2 (Process Manager)
@@ -186,6 +194,7 @@ src/
 - Chalk, Boxen, Figlet (UI CLI)
 
 ### Frontend
+
 - React 18 (via CDN)
 - TailwindCSS
 - Lucide Icons
@@ -195,7 +204,7 @@ src/
 
 ### Créer un projet avec l'interface Web
 
-1. Accéder à http://localhost:3847
+1. Accéder à [http://localhost:3847](http://localhost:3847)
 2. Cliquer sur "Nouveau projet"
 3. Remplir le formulaire (nom + mot de passe SFTP)
 4. Le projet est créé avec l'utilisateur SFTP
@@ -205,10 +214,10 @@ src/
 1. Cliquer sur le projet
 2. "Ajouter un service"
 3. Configurer :
-   - Nom du service
-   - Dossier (relatif à `sites/`)
-   - Commandes de setup (ex: `npm install`)
-   - Commande de démarrage (ex: `npm start`)
+  - Nom du service
+  - Dossier (relatif à `sites/`)
+  - Commandes de setup (ex: `npm install`)
+  - Commande de démarrage (ex: `npm start`)
 
 ### Se connecter en SFTP
 
@@ -226,6 +235,7 @@ sftp sftp_nom-projet@votre-serveur
 5. Optionnel : Assigner la BDD à un projet
 
 **Permissions utilisateur :**
+
 - Les **administrateurs** peuvent créer, modifier et supprimer toutes les bases de données
 - Les **utilisateurs normaux** ne voient que les bases de données des projets qui leur sont assignés
 - Chaque base de données peut être assignée à un projet spécifique
@@ -236,6 +246,7 @@ sftp sftp_nom-projet@votre-serveur
 L'éditeur intégré permet de gérer vos bases de données directement depuis l'interface web :
 
 **Pour MySQL :**
+
 1. Cliquer sur "Ouvrir l'éditeur" sur une base de données MySQL
 2. Naviguer entre les tables dans le panneau latéral
 3. Visualiser la structure des tables (colonnes, types, clés)
@@ -244,6 +255,7 @@ L'éditeur intégré permet de gérer vos bases de données directement depuis l
 6. Voir les résultats en temps réel
 
 **Pour MongoDB :**
+
 1. Cliquer sur "Ouvrir l'éditeur" sur une base de données MongoDB
 2. Naviguer entre les collections dans le panneau latéral
 3. Consulter les documents avec pagination
@@ -252,6 +264,7 @@ L'éditeur intégré permet de gérer vos bases de données directement depuis l
 6. **Importer des données BSON** : Glisser-déposer un fichier `.bson` pour importer des données directement
 
 **Fonctionnalités :**
+
 - ✅ Navigation intuitive entre tables/collections
 - ✅ Visualisation de la structure (MySQL)
 - ✅ Pagination automatique (100 lignes/documents par page)
@@ -265,6 +278,7 @@ L'éditeur intégré permet de gérer vos bases de données directement depuis l
 L'application permet d'importer facilement des fichiers BSON (format d'export natif de MongoDB) :
 
 **Via l'API :**
+
 ```bash
 curl -X POST http://localhost:3847/api/databases/{database_id}/import-bson \
   -F "bsonFile=@/chemin/vers/fichier.bson" \
@@ -272,6 +286,7 @@ curl -X POST http://localhost:3847/api/databases/{database_id}/import-bson \
 ```
 
 **Fonctionnement :**
+
 - Supporte les fichiers BSON générés par `mongodump` ou `mongoexport --type=bson`
 - Parse automatiquement tous les documents du fichier
 - Insère les documents dans la collection spécifiée
@@ -313,14 +328,17 @@ Pour signaler un bug ou demander une fonctionnalité, ouvrez une issue sur [GitH
 
 ## 🔮 Roadmap
 
-- [ ] Support Docker
-- [x] Authentification multi-utilisateurs pour l'interface Web
-- [x] Gestion des bases de données MySQL et MongoDB
-- [x] Éditeur de base de données intégré (phpMyAdmin-like)
-- [ ] Monitoring avancé des ressources
-- [ ] Notifications par email/webhook
-- [ ] Support d'autres distributions Linux
-- [x] Interface mobile responsive améliorée
-- [ ] Backup automatique des bases de données
-#
-#
+- Support Docker
+- Authentification multi-utilisateurs pour l'interface Web
+- Gestion des bases de données MySQL et MongoDB
+- Éditeur de base de données intégré (phpMyAdmin-like)
+- Monitoring avancé des ressources
+- Notifications par email/webhook
+- Support d'autres distributions Linux
+- Interface mobile responsive améliorée
+- Backup automatique des bases de données
+
+
+
+
+
