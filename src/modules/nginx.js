@@ -57,6 +57,39 @@ function getConfigFileName(domain) {
 }
 
 /**
+ * Indique si la chaîne hôte contient déjà un port explicite (évite host:port:port).
+ * IPv6: [2001:db8::1]:8080
+ * IPv4 / nom: 192.168.1.1:5177 ou backend:3000
+ */
+function targetHostHasExplicitPort(host) {
+    if (!host || typeof host !== 'string') return false;
+    const h = host.trim();
+    if (h.startsWith('[')) {
+        const bracketEnd = h.indexOf(']:');
+        return bracketEnd !== -1 && /^\d{1,5}$/.test(h.slice(bracketEnd + 2));
+    }
+    const lastColon = h.lastIndexOf(':');
+    if (lastColon <= 0) return false;
+    return /^\d{1,5}$/.test(h.slice(lastColon + 1));
+}
+
+/**
+ * URL complète pour proxy_pass (un seul port dans l'upstream).
+ */
+function buildProxyPassUrl(targetProtocol, targetHost, port) {
+    const proto = targetProtocol || 'http';
+    const host = (targetHost || 'localhost').trim();
+    if (targetHostHasExplicitPort(host)) {
+        return `${proto}://${host}`;
+    }
+    const p = port != null && port !== '' ? String(port).trim() : '';
+    if (p === '') {
+        return `${proto}://${host}`;
+    }
+    return `${proto}://${host}:${p}`;
+}
+
+/**
  * Générer le contenu d'une configuration Nginx
  */
 function generateNginxConfig(domain, port, options = {}) {
@@ -68,6 +101,8 @@ function generateNginxConfig(domain, port, options = {}) {
         targetHost = 'localhost',
         targetProtocol = 'http'
     } = options;
+
+    const upstream = buildProxyPassUrl(targetProtocol, targetHost, port);
 
     let config = '';
 
@@ -81,7 +116,7 @@ function generateNginxConfig(domain, port, options = {}) {
     ssl_certificate_key ${sslKeyPath};
 
     location / {
-        proxy_pass ${targetProtocol}://${targetHost}:${port};
+        proxy_pass ${upstream};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -110,7 +145,7 @@ function generateNginxConfig(domain, port, options = {}) {
     server_name ${domain};
 
     location / {
-        proxy_pass ${targetProtocol}://${targetHost}:${port};
+        proxy_pass ${upstream};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -190,7 +225,7 @@ async function createNginxConfig(domain, port, description = '', options = {}) {
     configs.push(newConfig);
     saveNginxConfigs(configs);
 
-    const target = `${options.targetProtocol || 'http'}://${options.targetHost || 'localhost'}:${port}`;
+    const target = buildProxyPassUrl(options.targetProtocol, options.targetHost, port);
     logger.info(`Configuration Nginx créée: ${domain} -> ${target}`);
     return newConfig;
 }
