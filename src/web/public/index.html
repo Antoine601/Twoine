@@ -5571,9 +5571,14 @@
             const [showEditModal, setShowEditModal] = useState(false);
             const [showEditConfigModal, setShowEditConfigModal] = useState(false);
             const [showGlobalEditModal, setShowGlobalEditModal] = useState(false);
+            const [showErrorPagesModal, setShowErrorPagesModal] = useState(false);
+            const [showEditErrorPageModal, setShowEditErrorPageModal] = useState(false);
             const [selectedConfig, setSelectedConfig] = useState(null);
             const [editContent, setEditContent] = useState('');
             const [globalEditContent, setGlobalEditContent] = useState('');
+            const [errorPages, setErrorPages] = useState([]);
+            const [selectedErrorPage, setSelectedErrorPage] = useState(null);
+            const [errorPageContent, setErrorPageContent] = useState('');
             const [form, setForm] = useState({
                 domain: '',
                 port: '',
@@ -5888,6 +5893,82 @@
                 }
             }
 
+            async function loadErrorPages() {
+                try {
+                    const result = await api.get('/api/nginx/error-pages');
+                    if (result.success) {
+                        setErrorPages(result.data);
+                    }
+                } catch (error) {
+                    showToast('Erreur lors du chargement des pages d\'erreur', 'error');
+                }
+            }
+
+            async function handleOpenErrorPages() {
+                await loadErrorPages();
+                setShowErrorPagesModal(true);
+            }
+
+            async function handleEditErrorPage(errorCode) {
+                try {
+                    const result = await api.get(`/api/nginx/error-pages/${errorCode}`);
+                    if (result.success) {
+                        setSelectedErrorPage(result.data);
+                        setErrorPageContent(result.data.content);
+                        setShowEditErrorPageModal(true);
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
+            }
+
+            async function handleSaveErrorPage(e) {
+                e.preventDefault();
+                try {
+                    const result = await api.put(`/api/nginx/error-pages/${selectedErrorPage.code}`, {
+                        content: errorPageContent
+                    });
+                    if (result.success) {
+                        showToast(`Page d'erreur ${selectedErrorPage.code} mise à jour`, 'success');
+                        setShowEditErrorPageModal(false);
+                        setSelectedErrorPage(null);
+                        loadErrorPages();
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
+            }
+
+            async function handleDeleteErrorPage(errorCode) {
+                if (!confirm(`Supprimer la page d'erreur personnalisée ${errorCode} ?`)) return;
+                
+                try {
+                    const result = await api.del(`/api/nginx/error-pages/${errorCode}`);
+                    if (result.success) {
+                        showToast(`Page d'erreur ${errorCode} supprimée`, 'success');
+                        loadErrorPages();
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
+            }
+
+            async function handleResetToDefault(errorCode) {
+                try {
+                    const result = await api.get(`/api/nginx/error-pages/${errorCode}/default`);
+                    if (result.success) {
+                        setErrorPageContent(result.data);
+                        showToast('Template par défaut chargé', 'info');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
+            }
+
             return (
                 <div className="fade-in">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
@@ -5895,7 +5976,15 @@
                             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Nginx</h1>
                             <p className="text-sm sm:text-base text-gray-600 mt-1">Gestion des reverse proxy</p>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-wrap">
+                            <button
+                                onClick={handleOpenErrorPages}
+                                className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors flex items-center gap-2"
+                                title="Pages d'erreur"
+                            >
+                                <Icon name="file-warning" size={16} />
+                                <span className="hidden sm:inline">Pages erreur</span>
+                            </button>
                             <button
                                 onClick={handleEditGlobalConfig}
                                 className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2"
@@ -5909,7 +5998,7 @@
                                 className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2"
                             >
                                 <Icon name="refresh-cw" size={16} />
-                                <span className="hidden sm:inline">Recharger Nginx</span>
+                                <span className="hidden sm:inline">Recharger</span>
                             </button>
                             <button
                                 onClick={() => setShowCreateModal(true)}
@@ -6630,6 +6719,177 @@
                                             className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
                                         >
                                             Sauvegarder et recharger
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Error Pages Modal */}
+                    {showErrorPagesModal && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+                                <div className="p-6 border-b border-gray-200">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                                                <Icon name="file-warning" size={20} />
+                                                Pages d'erreur personnalisées
+                                            </h2>
+                                            <p className="text-sm text-gray-600 mt-1">Gérez les pages d'erreur HTTP affichées aux visiteurs</p>
+                                        </div>
+                                        <button
+                                            onClick={() => setShowErrorPagesModal(false)}
+                                            className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                                        >
+                                            <Icon name="x" size={20} />
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="p-6">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full">
+                                            <thead>
+                                                <tr className="border-b border-gray-200">
+                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Code</th>
+                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Nom</th>
+                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
+                                                    <th className="text-center py-3 px-4 text-sm font-semibold text-gray-700">Personnalisée</th>
+                                                    <th className="text-right py-3 px-4 text-sm font-semibold text-gray-700">Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {errorPages.map(page => (
+                                                    <tr key={page.code} className="border-b border-gray-100 hover:bg-gray-50">
+                                                        <td className="py-3 px-4">
+                                                            <span className="inline-flex items-center justify-center w-12 h-8 bg-red-100 text-red-700 font-bold text-sm rounded">
+                                                                {page.code}
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm font-medium text-gray-900">{page.name}</td>
+                                                        <td className="py-3 px-4 text-sm text-gray-600">{page.description}</td>
+                                                        <td className="py-3 px-4 text-center">
+                                                            {page.hasCustomPage ? (
+                                                                <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">
+                                                                    <Icon name="check" size={12} />
+                                                                    Oui
+                                                                </span>
+                                                            ) : (
+                                                                <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-600 text-xs font-medium rounded-full">
+                                                                    Non
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-right">
+                                                            <div className="flex items-center justify-end gap-2">
+                                                                <button
+                                                                    onClick={() => handleEditErrorPage(page.code)}
+                                                                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                                    title="Modifier"
+                                                                >
+                                                                    <Icon name="edit" size={16} />
+                                                                </button>
+                                                                {page.hasCustomPage && (
+                                                                    <button
+                                                                        onClick={() => handleDeleteErrorPage(page.code)}
+                                                                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                                        title="Supprimer"
+                                                                    >
+                                                                        <Icon name="trash-2" size={16} />
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+                                        <p className="text-sm text-blue-800 flex items-start gap-2">
+                                            <Icon name="info" size={16} className="mt-0.5 flex-shrink-0" />
+                                            <span>Les pages personnalisées sont stockées dans <code className="px-1 py-0.5 bg-blue-100 rounded text-blue-900">/etc/nginx/error-pages/</code>. Si aucune page personnalisée n'existe, Nginx affiche sa page par défaut.</span>
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Edit Error Page Modal */}
+                    {showEditErrorPageModal && selectedErrorPage && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+                                <div className="p-6 border-b border-gray-200">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                                                <span className="inline-flex items-center justify-center w-10 h-7 bg-red-100 text-red-700 font-bold text-sm rounded">
+                                                    {selectedErrorPage.code}
+                                                </span>
+                                                {selectedErrorPage.name}
+                                            </h2>
+                                            <p className="text-sm text-gray-600 mt-1">{selectedErrorPage.description}</p>
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                setShowEditErrorPageModal(false);
+                                                setSelectedErrorPage(null);
+                                            }}
+                                            className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                                        >
+                                            <Icon name="x" size={20} />
+                                        </button>
+                                    </div>
+                                    {selectedErrorPage.hasCustomPage && (
+                                        <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                                            <p className="text-xs text-green-800 flex items-center gap-2">
+                                                <Icon name="check-circle" size={14} />
+                                                Cette page a une version personnalisée. Modifiez-la ou réinitialisez au template par défaut.
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                                <form onSubmit={handleSaveErrorPage} className="p-6 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <label className="block text-sm font-medium text-gray-700">
+                                            Contenu HTML de la page d'erreur
+                                        </label>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleResetToDefault(selectedErrorPage.code)}
+                                            className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1"
+                                        >
+                                            <Icon name="refresh-cw" size={14} />
+                                            Réinitialiser au template par défaut
+                                        </button>
+                                    </div>
+                                    <textarea
+                                        value={errorPageContent}
+                                        onChange={(e) => setErrorPageContent(e.target.value)}
+                                        rows={25}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-sm"
+                                        placeholder="<!DOCTYPE html>..."
+                                        required
+                                    />
+                                    <div className="flex gap-3 pt-4">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setShowEditErrorPageModal(false);
+                                                setSelectedErrorPage(null);
+                                            }}
+                                            className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                                        >
+                                            Annuler
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center justify-center gap-2"
+                                        >
+                                            <Icon name="save" size={16} />
+                                            Sauvegarder
                                         </button>
                                     </div>
                                 </form>

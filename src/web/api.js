@@ -2613,6 +2613,110 @@ router.put('/nginx/configs/:id', async (req, res) => {
 });
 
 // ============================================
+// NGINX ERROR PAGES
+// ============================================
+
+/**
+ * GET /api/nginx/error-pages - Liste toutes les pages d'erreur
+ */
+router.get('/nginx/error-pages', (req, res) => {
+    try {
+        const errorPages = nginx.listErrorPages();
+        res.json({ success: true, data: errorPages });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/nginx/error-pages/:code - Obtenir une page d'erreur
+ */
+router.get('/nginx/error-pages/:code', (req, res) => {
+    try {
+        const code = parseInt(req.params.code);
+        const content = nginx.readErrorPage(code);
+        const defaultContent = nginx.getDefaultErrorPage(code);
+        
+        res.json({ 
+            success: true, 
+            data: {
+                code,
+                hasCustomPage: content !== null,
+                content: content || defaultContent,
+                isDefault: content === null
+            }
+        });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * PUT /api/nginx/error-pages/:code - Créer/modifier une page d'erreur
+ */
+router.put('/nginx/error-pages/:code', async (req, res) => {
+    try {
+        const requestUser = getRequestUser(req);
+        if (!requestUser || requestUser.role !== 'admin') {
+            return res.status(403).json({ success: false, error: 'Accès refusé' });
+        }
+        
+        const code = parseInt(req.params.code);
+        const { content } = req.body;
+        
+        if (!content) {
+            return res.status(400).json({ success: false, error: 'Contenu requis' });
+        }
+        
+        await nginx.setErrorPage(code, content);
+        res.json({ success: true, message: `Page d'erreur ${code} mise à jour` });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * DELETE /api/nginx/error-pages/:code - Supprimer une page d'erreur personnalisée
+ */
+router.delete('/nginx/error-pages/:code', (req, res) => {
+    try {
+        const requestUser = getRequestUser(req);
+        if (!requestUser || requestUser.role !== 'admin') {
+            return res.status(403).json({ success: false, error: 'Accès refusé' });
+        }
+        
+        const code = parseInt(req.params.code);
+        nginx.deleteErrorPage(code);
+        res.json({ success: true, message: `Page d'erreur ${code} supprimée` });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/nginx/error-pages/:code/default - Obtenir le template par défaut
+ */
+router.get('/nginx/error-pages/:code/default', (req, res) => {
+    try {
+        const code = parseInt(req.params.code);
+        const defaultContent = nginx.getDefaultErrorPage(code);
+        
+        if (!defaultContent) {
+            return res.status(404).json({ success: false, error: 'Code d\'erreur non supporté' });
+        }
+        
+        res.json({ success: true, data: defaultContent });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
 // SSL
 // ============================================
 
