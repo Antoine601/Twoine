@@ -566,6 +566,213 @@ async function updateGlobalConfig(content) {
     }
 }
 
+/**
+ * Codes d'erreur HTTP supportés pour les pages personnalisées
+ */
+const ERROR_CODES = [
+    { code: 400, name: 'Bad Request', description: 'Requête malformée' },
+    { code: 401, name: 'Unauthorized', description: 'Authentification requise' },
+    { code: 403, name: 'Forbidden', description: 'Accès interdit' },
+    { code: 404, name: 'Not Found', description: 'Page non trouvée' },
+    { code: 500, name: 'Internal Server Error', description: 'Erreur interne du serveur' },
+    { code: 502, name: 'Bad Gateway', description: 'Mauvaise passerelle' },
+    { code: 503, name: 'Service Unavailable', description: 'Service indisponible' },
+    { code: 504, name: 'Gateway Timeout', description: 'Délai d\'attente dépassé' }
+];
+
+const ERROR_PAGES_DIR = '/etc/nginx/error-pages';
+
+/**
+ * Initialiser le dossier des pages d'erreur
+ */
+function initErrorPagesDir() {
+    if (!fs.existsSync(ERROR_PAGES_DIR)) {
+        fs.mkdirSync(ERROR_PAGES_DIR, { recursive: true });
+    }
+}
+
+/**
+ * Lister les codes d'erreur disponibles
+ */
+function getErrorCodes() {
+    return ERROR_CODES;
+}
+
+/**
+ * Obtenir le chemin de la page d'erreur personnalisée
+ */
+function getErrorPagePath(errorCode) {
+    return path.join(ERROR_PAGES_DIR, `${errorCode}.html`);
+}
+
+/**
+ * Vérifier si une page d'erreur personnalisée existe
+ */
+function hasErrorPage(errorCode) {
+    const pagePath = getErrorPagePath(errorCode);
+    return fs.existsSync(pagePath);
+}
+
+/**
+ * Lire le contenu d'une page d'erreur personnalisée
+ */
+function readErrorPage(errorCode) {
+    const pagePath = getErrorPagePath(errorCode);
+    if (!fs.existsSync(pagePath)) {
+        return null;
+    }
+    return fs.readFileSync(pagePath, 'utf8');
+}
+
+/**
+ * Créer ou mettre à jour une page d'erreur personnalisée
+ */
+async function setErrorPage(errorCode, htmlContent) {
+    if (!ERROR_CODES.find(e => e.code === parseInt(errorCode))) {
+        throw new Error(`Code d'erreur non supporté: ${errorCode}`);
+    }
+
+    initErrorPagesDir();
+    const pagePath = getErrorPagePath(errorCode);
+    fs.writeFileSync(pagePath, htmlContent);
+
+    logger.success(`Page d'erreur ${errorCode} créée/mise à jour`);
+    return true;
+}
+
+/**
+ * Supprimer une page d'erreur personnalisée
+ */
+function deleteErrorPage(errorCode) {
+    const pagePath = getErrorPagePath(errorCode);
+    if (fs.existsSync(pagePath)) {
+        fs.unlinkSync(pagePath);
+        logger.info(`Page d'erreur ${errorCode} supprimée`);
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Lister toutes les pages d'erreur personnalisées
+ */
+function listErrorPages() {
+    initErrorPagesDir();
+    const pages = [];
+
+    for (const error of ERROR_CODES) {
+        const pagePath = getErrorPagePath(error.code);
+        const exists = fs.existsSync(pagePath);
+
+        pages.push({
+            ...error,
+            hasCustomPage: exists,
+            path: exists ? pagePath : null
+        });
+    }
+
+    return pages;
+}
+
+/**
+ * Générer la configuration Nginx pour les pages d'erreur
+ * À inclure dans les blocs server
+ */
+function generateErrorPagesConfig() {
+    const configs = [];
+
+    for (const error of ERROR_CODES) {
+        if (hasErrorPage(error.code)) {
+            configs.push(`    error_page ${error.code} /error-pages/${error.code}.html;`);
+        }
+    }
+
+    if (configs.length > 0) {
+        return `
+    # Pages d'erreur personnalisées
+    location /error-pages/ {
+        alias ${ERROR_PAGES_DIR}/;
+        internal;
+    }
+
+${configs.join('\n')}
+`;
+    }
+
+    return '';
+}
+
+/**
+ * Obtenir le contenu de la page d'erreur par défaut
+ */
+function getDefaultErrorPage(errorCode) {
+    const error = ERROR_CODES.find(e => e.code === parseInt(errorCode));
+    if (!error) {
+        return '';
+    }
+
+    return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Erreur ${error.code} - ${error.name}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+        }
+        .container {
+            text-align: center;
+            padding: 2rem;
+        }
+        .error-code {
+            font-size: 8rem;
+            font-weight: bold;
+            color: #e94560;
+            text-shadow: 0 0 20px rgba(233, 69, 96, 0.5);
+        }
+        .error-name {
+            font-size: 2rem;
+            margin: 1rem 0;
+            color: #f1f1f1;
+        }
+        .error-description {
+            font-size: 1.2rem;
+            color: #a0a0a0;
+            margin-bottom: 2rem;
+        }
+        .back-link {
+            display: inline-block;
+            padding: 12px 24px;
+            background: #e94560;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: background 0.3s;
+        }
+        .back-link:hover {
+            background: #ff6b6b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="error-code">${error.code}</div>
+        <h1 class="error-name">${error.name}</h1>
+        <p class="error-description">${error.description}</p>
+        <a href="/" class="back-link">Retour à l'accueil</a>
+    </div>
+</body>
+</html>`;
+}
+
 export default {
     createNginxConfig,
     listNginxConfigs,
@@ -578,5 +785,14 @@ export default {
     reloadNginx,
     getNginxStatus,
     readGlobalConfig,
-    updateGlobalConfig
+    updateGlobalConfig,
+    getErrorCodes,
+    hasErrorPage,
+    readErrorPage,
+    setErrorPage,
+    deleteErrorPage,
+    listErrorPages,
+    generateErrorPagesConfig,
+    getDefaultErrorPage,
+    ERROR_PAGES_DIR
 };

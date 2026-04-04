@@ -13,6 +13,7 @@ import projects from '../modules/projects.js';
 import services from '../modules/services.js';
 import scripts from '../modules/scripts.js';
 import sftp from '../modules/sftp.js';
+import nginx from '../modules/nginx.js';
 import logger from '../utils/logger.js';
 import { MESSAGES } from '../config/constants.js';
 
@@ -55,6 +56,7 @@ export async function mainMenu() {
 
     choices.push({ name: '📊  Statut global PM2', value: 'pm2status' });
     choices.push({ name: '🔄  Régénérer tous les scripts', value: 'regenerate' });
+    choices.push({ name: '🌐  Gestion Nginx', value: 'nginx' });
     choices.push(new inquirer.Separator());
     choices.push({ name: '❌  Quitter', value: 'exit' });
 
@@ -943,6 +945,443 @@ async function pressEnterToContinue() {
     ]);
 }
 
+/**
+ * Menu Nginx
+ */
+export async function nginxMenu() {
+    displayHeader();
+    logger.section('Gestion Nginx');
+
+    const choices = [
+        { name: '📋  Lister les configurations', value: 'list' },
+        { name: '➕  Créer une configuration', value: 'create' },
+        new inquirer.Separator(),
+        { name: '📄  Pages d\'erreur personnalisées', value: 'errorPages' },
+        new inquirer.Separator(),
+        { name: '🔄  Recharger Nginx', value: 'reload' },
+        { name: '📊  Statut Nginx', value: 'status' },
+        new inquirer.Separator(),
+        { name: '←  Retour', value: 'back' }
+    ];
+
+    const { action } = await inquirer.prompt([
+        {
+            type: 'list',
+            name: 'action',
+            message: 'Menu Nginx:',
+            choices
+        }
+    ]);
+
+    switch (action) {
+        case 'list':
+            await listNginxConfigsForm();
+            break;
+        case 'create':
+            await createNginxConfigForm();
+            break;
+        case 'errorPages':
+            await errorPagesMenu();
+            break;
+        case 'reload':
+            await reloadNginxForm();
+            break;
+        case 'status':
+            await showNginxStatus();
+            break;
+        case 'back':
+            return 'back';
+    }
+
+    return 'continue';
+}
+
+/**
+ * Lister les configurations Nginx
+ */
+async function listNginxConfigsForm() {
+    displayHeader();
+    logger.section('Configurations Nginx');
+
+    const configs = nginx.listNginxConfigs();
+
+    if (configs.length === 0) {
+        console.log(chalk.yellow('Aucune configuration Nginx'));
+        await pressEnterToContinue();
+        return;
+    }
+
+    const table = new Table({
+        head: [
+            chalk.cyan('Domaine'),
+            chalk.cyan('Port'),
+            chalk.cyan('Statut'),
+            chalk.cyan('SSL'),
+            chalk.cyan('Description')
+        ],
+        colWidths: [30, 10, 12, 8, 30]
+    });
+
+    for (const config of configs) {
+        table.push([
+            config.domain,
+            config.port,
+            config.enabled ? chalk.green('Actif') : chalk.red('Inactif'),
+            config.useSSL ? '✓' : '-',
+            config.description || '-'
+        ]);
+    }
+
+    console.log(table.toString());
+    await pressEnterToContinue();
+}
+
+/**
+ * Créer une configuration Nginx
+ */
+async function createNginxConfigForm() {
+    displayHeader();
+    logger.section('Créer une configuration Nginx');
+
+    const answers = await inquirer.prompt([
+        {
+            type: 'input',
+            name: 'domain',
+            message: 'Domaine:',
+            validate: (input) => input.length > 0 || 'Domaine requis'
+        },
+        {
+            type: 'number',
+            name: 'port',
+            message: 'Port:',
+            default: 3000,
+            validate: (input) => (input > 0 && input < 65536) || 'Port invalide'
+        },
+        {
+            type: 'input',
+            name: 'description',
+            message: 'Description (optionnel):',
+            default: ''
+        },
+        {
+            type: 'confirm',
+            name: 'useSSL',
+            message: 'Utiliser SSL (HTTPS) ?',
+            default: false
+        },
+        {
+            type: 'input',
+            name: 'sslCertPath',
+            message: 'Chemin du certificat SSL:',
+            when: (ans) => ans.useSSL,
+            default: '/etc/letsencrypt/live/domain/fullchain.pem'
+        },
+        {
+            type: 'input',
+            name: 'sslKeyPath',
+            message: 'Chemin de la clé SSL:',
+            when: (ans) => ans.useSSL,
+            default: '/etc/letsencrypt/live/domain/privkey.pem'
+        },
+        {
+            type: 'confirm',
+            name: 'redirectHTTP',
+            message: 'Rediriger HTTP vers HTTPS ?',
+            when: (ans) => ans.useSSL,
+            default: true
+        },
+        {
+            type: 'input',
+            name: 'targetHost',
+            message: 'Hôte cible (ex: localhost, 127.0.0.1):',
+            default: 'localhost'
+        },
+        {
+            type: 'confirm',
+            name: 'confirm',
+            message: 'Créer cette configuration ?',
+            default: true
+        }
+    ]);
+
+    if (!answers.confirm) {
+        logger.warn(MESSAGES.operationCancelled);
+        await pressEnterToContinue();
+        return;
+    }
+
+    const spinner = ora('Création de la configuration...').start();
+
+    try {
+        await nginx.createNginxConfig(answers.domain, answers.port, answers.description, {
+            useSSL: answers.useSSL,
+            sslCertPath: answers.sslCertPath,
+            sslKeyPath: answers.sslKeyPath,
+            redirectHTTP: answers.redirectHTTP,
+            targetHost: answers.targetHost
+        });
+        spinner.succeed(`Configuration créée pour ${answers.domain}`);
+    } catch (error) {
+        spinner.fail('Erreur');
+        logger.error(error.message);
+    }
+
+    await pressEnterToContinue();
+}
+
+/**
+ * Menu des pages d'erreur
+ */
+export async function errorPagesMenu() {
+    displayHeader();
+    logger.section('Pages d\'erreur personnalisées');
+
+    const errorPages = nginx.listErrorPages();
+
+    const table = new Table({
+        head: [
+            chalk.cyan('Code'),
+            chalk.cyan('Nom'),
+            chalk.cyan('Description'),
+            chalk.cyan('Personnalisée')
+        ],
+        colWidths: [8, 25, 30, 15]
+    });
+
+    for (const page of errorPages) {
+        table.push([
+            page.code,
+            page.name,
+            page.description,
+            page.hasCustomPage ? chalk.green('✓ Oui') : chalk.gray('Non')
+        ]);
+    }
+
+    console.log(table.toString());
+
+    const choices = [
+        { name: '✏️  Modifier une page d\'erreur', value: 'edit' },
+        { name: '🗑️  Supprimer une page d\'erreur', value: 'delete' },
+        { name: '👁️  Voir le contenu d\'une page', value: 'view' },
+        new inquirer.Separator(),
+        { name: '←  Retour', value: 'back' }
+    ];
+
+    const { action } = await inquirer.prompt([
+        {
+            type: 'list',
+            name: 'action',
+            message: 'Actions:',
+            choices
+        }
+    ]);
+
+    switch (action) {
+        case 'edit':
+            await editErrorPageForm();
+            break;
+        case 'delete':
+            await deleteErrorPageForm();
+            break;
+        case 'view':
+            await viewErrorPageForm();
+            break;
+        case 'back':
+            return;
+    }
+}
+
+/**
+ * Modifier une page d'erreur
+ */
+async function editErrorPageForm() {
+    const errorCodes = nginx.getErrorCodes();
+
+    const choices = errorCodes.map(e => ({
+        name: `${e.code} - ${e.name} ${nginx.hasErrorPage(e.code) ? chalk.green('(personnalisée)') : chalk.gray('(défaut)')}`,
+        value: e.code
+    }));
+
+    choices.push(new inquirer.Separator());
+    choices.push({ name: '←  Retour', value: 'back' });
+
+    const { errorCode } = await inquirer.prompt([
+        {
+            type: 'list',
+            name: 'errorCode',
+            message: 'Page d\'erreur à modifier:',
+            choices
+        }
+    ]);
+
+    if (errorCode === 'back') return;
+
+    const existingContent = nginx.readErrorPage(errorCode) || nginx.getDefaultErrorPage(errorCode);
+
+    console.log(chalk.cyan('\nContenu HTML actuel (ouvrez un éditeur pour modifier):'));
+    console.log(chalk.gray('─'.repeat(50)));
+
+    const { editMethod, newContent } = await inquirer.prompt([
+        {
+            type: 'list',
+            name: 'editMethod',
+            message: 'Comment voulez-vous modifier la page ?',
+            choices: [
+                { name: '📝  Saisir le HTML directement', value: 'input' },
+                { name: '📄  Utiliser le template par défaut', value: 'default' },
+                { name: '←  Annuler', value: 'cancel' }
+            ]
+        },
+        {
+            type: 'editor',
+            name: 'newContent',
+            message: 'Modifiez le HTML:',
+            when: (ans) => ans.editMethod === 'input',
+            default: existingContent
+        }
+    ]);
+
+    if (editMethod === 'cancel') return;
+
+    const content = editMethod === 'default' ? nginx.getDefaultErrorPage(errorCode) : newContent;
+
+    const spinner = ora('Sauvegarde...').start();
+
+    try {
+        await nginx.setErrorPage(errorCode, content);
+        spinner.succeed(`Page d'erreur ${errorCode} mise à jour`);
+    } catch (error) {
+        spinner.fail('Erreur');
+        logger.error(error.message);
+    }
+
+    await pressEnterToContinue();
+}
+
+/**
+ * Supprimer une page d'erreur
+ */
+async function deleteErrorPageForm() {
+    const errorPages = nginx.listErrorPages().filter(p => p.hasCustomPage);
+
+    if (errorPages.length === 0) {
+        console.log(chalk.yellow('\nAucune page d\'erreur personnalisée à supprimer'));
+        await pressEnterToContinue();
+        return;
+    }
+
+    const choices = errorPages.map(e => ({
+        name: `${e.code} - ${e.name}`,
+        value: e.code
+    }));
+
+    choices.push(new inquirer.Separator());
+    choices.push({ name: '←  Retour', value: 'back' });
+
+    const { errorCode, confirm } = await inquirer.prompt([
+        {
+            type: 'list',
+            name: 'errorCode',
+            message: 'Page d\'erreur à supprimer:',
+            choices
+        },
+        {
+            type: 'confirm',
+            name: 'confirm',
+            message: 'Supprimer cette page personnalisée ?',
+            when: (ans) => ans.errorCode !== 'back',
+            default: true
+        }
+    ]);
+
+    if (errorCode === 'back' || !confirm) {
+        logger.warn(MESSAGES.operationCancelled);
+        await pressEnterToContinue();
+        return;
+    }
+
+    nginx.deleteErrorPage(errorCode);
+    logger.success(`Page d'erreur ${errorCode} supprimée (retour au défaut)`);
+    await pressEnterToContinue();
+}
+
+/**
+ * Voir le contenu d'une page d'erreur
+ */
+async function viewErrorPageForm() {
+    const errorCodes = nginx.getErrorCodes();
+
+    const choices = errorCodes.map(e => ({
+        name: `${e.code} - ${e.name}`,
+        value: e.code
+    }));
+
+    choices.push(new inquirer.Separator());
+    choices.push({ name: '←  Retour', value: 'back' });
+
+    const { errorCode } = await inquirer.prompt([
+        {
+            type: 'list',
+            name: 'errorCode',
+            message: 'Page à afficher:',
+            choices
+        }
+    ]);
+
+    if (errorCode === 'back') return;
+
+    const content = nginx.readErrorPage(errorCode) || nginx.getDefaultErrorPage(errorCode);
+
+    console.log(chalk.cyan(`\n=== Page d'erreur ${errorCode} ===\n`));
+    console.log(content);
+    console.log(chalk.gray('\n─'.repeat(50)));
+
+    await pressEnterToContinue();
+}
+
+/**
+ * Recharger Nginx
+ */
+async function reloadNginxForm() {
+    const spinner = ora('Rechargement de Nginx...').start();
+
+    try {
+        await nginx.reloadNginx();
+        spinner.succeed('Nginx rechargé avec succès');
+    } catch (error) {
+        spinner.fail('Erreur');
+        logger.error(error.message);
+    }
+
+    await pressEnterToContinue();
+}
+
+/**
+ * Afficher le statut Nginx
+ */
+async function showNginxStatus() {
+    displayHeader();
+    logger.section('Statut Nginx');
+
+    const spinner = ora('Récupération du statut...').start();
+
+    try {
+        const status = await nginx.getNginxStatus();
+        spinner.stop();
+
+        console.log(`Statut: ${status.active ? chalk.green('Actif (running)') : chalk.red('Inactif')}`);
+
+        if (status.error) {
+            console.log(chalk.red(`Erreur: ${status.error}`));
+        }
+    } catch (error) {
+        spinner.fail('Erreur');
+        logger.error(error.message);
+    }
+
+    await pressEnterToContinue();
+}
+
 export default {
     displayHeader,
     mainMenu,
@@ -952,5 +1391,7 @@ export default {
     projectManagementMenu,
     deleteProjectForm,
     showPm2Status,
-    regenerateAllScriptsAction
+    regenerateAllScriptsAction,
+    nginxMenu,
+    errorPagesMenu
 };

@@ -249,12 +249,12 @@ export async function startService(projectName, serviceName, runSetup = true) {
         const status = await shell.getPm2ProcessStatus(pm2Name);
         
         if (status) {
-            // Redémarrer si existe
-            await shell.pm2Command(`restart ${pm2Name}`);
-        } else {
-            // Créer un nouveau processus
-            await shell.pm2Command(`start "${service.command}" --name "${pm2Name}" --cwd "${service.directory}"`);
+            // Supprimer et recréer pour prendre en compte les changements de commande
+            await shell.pm2Command(`delete ${pm2Name}`);
         }
+        
+        // Créer un nouveau processus (ou recréer après suppression)
+        await shell.pm2Command(`start "${service.command}" --name "${pm2Name}" --cwd "${service.directory}"`);
 
         // Sauvegarder la configuration PM2
         await shell.pm2Command('save');

@@ -113,6 +113,13 @@ async function mainLoop() {
                     await menu.regenerateAllScriptsAction();
                     break;
 
+                case 'nginx':
+                    while (true) {
+                        const result = await menu.nginxMenu();
+                        if (result === 'back') break;
+                    }
+                    break;
+
                 case 'exit':
                     console.log(chalk.cyan('\n👋 Au revoir !\n'));
                     process.exit(0);
