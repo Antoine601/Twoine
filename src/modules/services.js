@@ -249,13 +249,12 @@ export async function startService(projectName, serviceName, runSetup = true) {
         const status = await shell.getPm2ProcessStatus(pm2Name);
         
         if (status) {
-            // Supprimer l'ancien processus pour recréer avec la nouvelle config
-            logger.info(`Suppression de l'ancien processus PM2: ${pm2Name}`);
-            await shell.pm2Command(`delete ${pm2Name}`);
+            // Redémarrer si existe
+            await shell.pm2Command(`restart ${pm2Name}`);
+        } else {
+            // Créer un nouveau processus
+            await shell.pm2Command(`start "${service.command}" --name "${pm2Name}" --cwd "${service.directory}"`);
         }
-        
-        // Créer un nouveau processus avec la commande actuelle
-        await shell.pm2Command(`start "${service.command}" --name "${pm2Name}" --cwd "${service.directory}"`);
 
         // Sauvegarder la configuration PM2
         await shell.pm2Command('save');
@@ -310,12 +309,7 @@ export async function restartService(projectName, serviceName) {
     logger.info(`Redémarrage du service ${serviceName}...`);
 
     try {
-        // Supprimer et recréer pour prendre en compte les changements de config
-        const status = await shell.getPm2ProcessStatus(pm2Name);
-        if (status) {
-            await shell.pm2Command(`delete ${pm2Name}`);
-        }
-        await shell.pm2Command(`start "${service.command}" --name "${pm2Name}" --cwd "${service.directory}"`);
+        await shell.pm2Command(`restart ${pm2Name}`);
         await shell.pm2Command('save');
         logger.success(`Service ${serviceName} redémarré`);
     } catch (error) {

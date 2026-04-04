@@ -1809,7 +1809,7 @@ router.post('/export', async (req, res) => {
         req.setTimeout(600000);
         res.setTimeout(600000);
 
-        const { projects: exportProjects, databases: exportDatabases, apiKeys: exportApiKeys, users: exportUsers, nginx: exportNginx, ssl: exportSsl, includeProjectFiles } = req.body;
+        const { projects: exportProjects, databases: exportDatabases, apiKeys: exportApiKeys, users: exportUsers, includeProjectFiles } = req.body;
         const exportData = {};
 
         // Exporter les projets avec leurs fichiers
@@ -2006,21 +2006,6 @@ router.post('/export', async (req, res) => {
 
                 exportData.databases.push(dbData);
             }
-        }
-
-        // Exporter les configurations Nginx
-        if (exportNginx) {
-            const nginxConfigs = nginx.listNginxConfigs();
-            exportData.nginx = nginxConfigs.map(config => ({
-                ...config,
-                configContent: nginx.readNginxConfigFile(config.id)
-            }));
-        }
-
-        // Exporter les certificats SSL
-        if (exportSsl) {
-            const sslCerts = ssl.getAllCertificates();
-            exportData.ssl = sslCerts;
         }
 
         // Exporter les clés API
@@ -2320,94 +2305,11 @@ router.post('/import', async (req, res) => {
             }
         }
 
-        // Importer les configurations Nginx
-        if (importData.nginx && Array.isArray(importData.nginx)) {
-            results.nginx = { success: 0, failed: 0, errors: [] };
-            for (const config of importData.nginx) {
-                try {
-                    // Vérifier si une config existe déjà pour ce domaine
-                    const existingConfigs = nginx.listNginxConfigs();
-                    if (existingConfigs.some(c => c.domain === config.domain)) {
-                        results.nginx.failed++;
-                        results.nginx.errors.push(`Config Nginx pour "${config.domain}" existe déjà`);
-                        continue;
-                    }
-
-                    // Vérifier que le projet lié existe
-                    if (config.linkedProject && !projects.projectExists(config.linkedProject)) {
-                        results.nginx.failed++;
-                        results.nginx.errors.push(`Projet "${config.linkedProject}" non trouvé pour config Nginx "${config.domain}"`);
-                        continue;
-                    }
-
-                    // Créer la configuration Nginx
-                    const options = {
-                        useSSL: config.useSSL || false,
-                        sslCertPath: config.sslCertPath || '',
-                        sslKeyPath: config.sslKeyPath || '',
-                        redirectHTTP: config.redirectHTTP || false,
-                        targetHost: config.targetHost || 'localhost',
-                        targetProtocol: config.targetProtocol || 'http',
-                        linkedProject: config.linkedProject || '',
-                        linkedService: config.linkedService || ''
-                    };
-
-                    await nginx.createNginxConfig(config.domain, config.port, config.description || '', options);
-                    results.nginx.success++;
-                } catch (error) {
-                    results.nginx.failed++;
-                    results.nginx.errors.push(`${config.domain}: ${error.message}`);
-                }
-            }
-        }
-
-        // Importer les certificats SSL (recréer avec Let's Encrypt)
-        if (importData.ssl && Array.isArray(importData.ssl)) {
-            results.ssl = { success: 0, failed: 0, errors: [] };
-            for (const cert of importData.ssl) {
-                try {
-                    // Vérifier si un certificat existe déjà pour ce domaine
-                    const existingCerts = ssl.getAllCertificates();
-                    if (existingCerts.some(c => c.domain === cert.domain)) {
-                        results.ssl.failed++;
-                        results.ssl.errors.push(`Certificat pour "${cert.domain}" existe déjà`);
-                        continue;
-                    }
-
-                    // Vérifier que le projet lié existe
-                    if (cert.linkedProject && !projects.projectExists(cert.linkedProject)) {
-                        results.ssl.failed++;
-                        results.ssl.errors.push(`Projet "${cert.linkedProject}" non trouvé pour certificat "${cert.domain}"`);
-                        continue;
-                    }
-
-                    // Créer un nouveau certificat Let's Encrypt
-                    // Note: Nécessite que le domaine pointe vers ce serveur
-                    ssl.createCertificate({
-                        domain: cert.domain,
-                        country: cert.country || 'FR',
-                        state: cert.state || '',
-                        city: cert.city || '',
-                        organization: cert.organization || '',
-                        organizationalUnit: cert.organizationalUnit || '',
-                        email: cert.email || '',
-                        linkedProject: cert.linkedProject || ''
-                    });
-                    results.ssl.success++;
-                } catch (error) {
-                    results.ssl.failed++;
-                    results.ssl.errors.push(`${cert.domain}: ${error.message}`);
-                }
-            }
-        }
-
         // Construire le message de résultat
         const totalSuccess = results.projects.success + results.databases.success + 
-                           results.apiKeys.success + results.users.success +
-                           (results.nginx?.success || 0) + (results.ssl?.success || 0);
+                           results.apiKeys.success + results.users.success;
         const totalFailed = results.projects.failed + results.databases.failed + 
-                          results.apiKeys.failed + results.users.failed +
-                          (results.nginx?.failed || 0) + (results.ssl?.failed || 0);
+                          results.apiKeys.failed + results.users.failed;
 
         res.json({
             success: true,
@@ -2707,144 +2609,6 @@ router.put('/nginx/configs/:id', async (req, res) => {
     } catch (error) {
         logger.error(`API: ${error.message}`);
         res.status(400).json({ success: false, error: error.message });
-    }
-});
-
-/**
- * GET /api/nginx/configs/:id/error-pages - Liste toutes les pages d'erreur pour un domaine
- */
-router.get('/nginx/configs/:id/error-pages', (req, res) => {
-    try {
-        const requestUser = getRequestUser(req);
-        const config = nginx.getNginxConfig(req.params.id);
-        if (!config) {
-            return res.status(404).json({ success: false, error: 'Configuration non trouvée' });
-        }
-        if (requestUser && requestUser.role !== 'admin') {
-            ensureProjectAccess(requestUser, config.linkedProject);
-        }
-        
-        const pages = nginx.getAllErrorPages(config.domain);
-        res.json({ success: true, data: pages });
-    } catch (error) {
-        logger.error(`API: ${error.message}`);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-/**
- * GET /api/nginx/configs/:id/error-pages/:code - Récupère une page d'erreur spécifique
- */
-router.get('/nginx/configs/:id/error-pages/:code', (req, res) => {
-    try {
-        const requestUser = getRequestUser(req);
-        const config = nginx.getNginxConfig(req.params.id);
-        if (!config) {
-            return res.status(404).json({ success: false, error: 'Configuration non trouvée' });
-        }
-        if (requestUser && requestUser.role !== 'admin') {
-            ensureProjectAccess(requestUser, config.linkedProject);
-        }
-        
-        const page = nginx.getErrorPage(config.domain, req.params.code);
-        if (!page) {
-            return res.status(404).json({ success: false, error: 'Page d\'erreur non trouvée' });
-        }
-        res.json({ success: true, data: { code: req.params.code, content: page } });
-    } catch (error) {
-        logger.error(`API: ${error.message}`);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-/**
- * PUT /api/nginx/configs/:id/error-pages/:code - Sauvegarder une page d'erreur
- */
-router.put('/nginx/configs/:id/error-pages/:code', async (req, res) => {
-    try {
-        const requestUser = getRequestUser(req);
-        const config = nginx.getNginxConfig(req.params.id);
-        if (!config) {
-            return res.status(404).json({ success: false, error: 'Configuration non trouvée' });
-        }
-        if (requestUser && requestUser.role !== 'admin') {
-            ensureProjectAccess(requestUser, config.linkedProject);
-        }
-        
-        const { content } = req.body;
-        if (!content) {
-            return res.status(400).json({ success: false, error: 'Contenu HTML requis' });
-        }
-        
-        const filePath = nginx.saveErrorPage(config.domain, req.params.code, content);
-        
-        // Mettre à jour la config Nginx pour inclure la nouvelle page d'erreur
-        const currentPages = nginx.getAllErrorPages(config.domain);
-        const options = {
-            useSSL: config.useSSL,
-            sslCertPath: config.sslCertPath,
-            sslKeyPath: config.sslKeyPath,
-            redirectHTTP: config.redirectHTTP,
-            targetHost: config.targetHost,
-            targetProtocol: config.targetProtocol,
-            errorPages: currentPages
-        };
-        
-        await nginx.updateNginxConfig(req.params.id, config.domain, config.port, config.description, options);
-        
-        res.json({ success: true, message: `Page d'erreur ${req.params.code} sauvegardée`, filePath });
-    } catch (error) {
-        logger.error(`API: ${error.message}`);
-        res.status(400).json({ success: false, error: error.message });
-    }
-});
-
-/**
- * DELETE /api/nginx/configs/:id/error-pages/:code - Supprimer une page d'erreur
- */
-router.delete('/nginx/configs/:id/error-pages/:code', async (req, res) => {
-    try {
-        const requestUser = getRequestUser(req);
-        const config = nginx.getNginxConfig(req.params.id);
-        if (!config) {
-            return res.status(404).json({ success: false, error: 'Configuration non trouvée' });
-        }
-        if (requestUser && requestUser.role !== 'admin') {
-            ensureProjectAccess(requestUser, config.linkedProject);
-        }
-        
-        nginx.deleteErrorPage(config.domain, req.params.code);
-        
-        // Mettre à jour la config Nginx pour retirer la page d'erreur
-        const currentPages = nginx.getAllErrorPages(config.domain);
-        const options = {
-            useSSL: config.useSSL,
-            sslCertPath: config.sslCertPath,
-            sslKeyPath: config.sslKeyPath,
-            redirectHTTP: config.redirectHTTP,
-            targetHost: config.targetHost,
-            targetProtocol: config.targetProtocol,
-            errorPages: currentPages
-        };
-        
-        await nginx.updateNginxConfig(req.params.id, config.domain, config.port, config.description, options);
-        
-        res.json({ success: true, message: `Page d'erreur ${req.params.code} supprimée` });
-    } catch (error) {
-        logger.error(`API: ${error.message}`);
-        res.status(400).json({ success: false, error: error.message });
-    }
-});
-
-/**
- * GET /api/nginx/error-codes - Liste les codes d'erreur supportés
- */
-router.get('/nginx/error-codes', (req, res) => {
-    try {
-        res.json({ success: true, data: nginx.SUPPORTED_ERROR_CODES });
-    } catch (error) {
-        logger.error(`API: ${error.message}`);
-        res.status(500).json({ success: false, error: error.message });
     }
 });
 

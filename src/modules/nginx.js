@@ -10,108 +10,13 @@ import logger from '../utils/logger.js';
 const NGINX_SITES_AVAILABLE = '/etc/nginx/sites-available';
 const NGINX_SITES_ENABLED = '/etc/nginx/sites-enabled';
 const NGINX_CONFIGS_DIR = '/etc/nodejs-project-manager/nginx';
-const NGINX_ERROR_PAGES_DIR = '/etc/nginx/custom-error-pages';
-
-// Codes d'erreur HTTP courants supportés
-const SUPPORTED_ERROR_CODES = [400, 401, 403, 404, 405, 406, 407, 408, 409, 410, 411, 412, 413, 414, 415, 416, 417, 418, 421, 422, 423, 424, 425, 426, 428, 429, 431, 451, 500, 501, 502, 503, 504, 505, 506, 507, 508, 510, 511];
 
 /**
- * Initialiser le dossier de configuration Nginx et des pages d'erreur
+ * Initialiser le dossier de configuration Nginx
  */
 function initNginxConfigDir() {
     if (!fs.existsSync(NGINX_CONFIGS_DIR)) {
         fs.mkdirSync(NGINX_CONFIGS_DIR, { recursive: true });
-    }
-    if (!fs.existsSync(NGINX_ERROR_PAGES_DIR)) {
-        fs.mkdirSync(NGINX_ERROR_PAGES_DIR, { recursive: true });
-    }
-}
-
-/**
- * Sauvegarder une page d'erreur personnalisée
- */
-function saveErrorPage(domain, errorCode, htmlContent) {
-    if (!SUPPORTED_ERROR_CODES.includes(parseInt(errorCode))) {
-        throw new Error(`Code d'erreur ${errorCode} non supporté`);
-    }
-    
-    const domainDir = path.join(NGINX_ERROR_PAGES_DIR, domain.replace(/[^a-zA-Z0-9.-]/g, '_'));
-    if (!fs.existsSync(domainDir)) {
-        fs.mkdirSync(domainDir, { recursive: true });
-    }
-    
-    const filePath = path.join(domainDir, `${errorCode}.html`);
-    fs.writeFileSync(filePath, htmlContent);
-    logger.info(`Page d'erreur ${errorCode} sauvegardée pour ${domain}`);
-    return filePath;
-}
-
-/**
- * Lire une page d'erreur personnalisée
- */
-function getErrorPage(domain, errorCode) {
-    const domainDir = path.join(NGINX_ERROR_PAGES_DIR, domain.replace(/[^a-zA-Z0-9.-]/g, '_'));
-    const filePath = path.join(domainDir, `${errorCode}.html`);
-    
-    if (!fs.existsSync(filePath)) {
-        return null;
-    }
-    
-    return fs.readFileSync(filePath, 'utf8');
-}
-
-/**
- * Récupérer toutes les pages d'erreur pour un domaine
- */
-function getAllErrorPages(domain) {
-    const domainDir = path.join(NGINX_ERROR_PAGES_DIR, domain.replace(/[^a-zA-Z0-9.-]/g, '_'));
-    
-    if (!fs.existsSync(domainDir)) {
-        return {};
-    }
-    
-    const pages = {};
-    const files = fs.readdirSync(domainDir);
-    
-    for (const file of files) {
-        if (file.endsWith('.html')) {
-            const code = parseInt(file.replace('.html', ''));
-            if (SUPPORTED_ERROR_CODES.includes(code)) {
-                pages[code] = fs.readFileSync(path.join(domainDir, file), 'utf8');
-            }
-        }
-    }
-    
-    return pages;
-}
-
-/**
- * Supprimer une page d'erreur
- */
-function deleteErrorPage(domain, errorCode) {
-    const domainDir = path.join(NGINX_ERROR_PAGES_DIR, domain.replace(/[^a-zA-Z0-9.-]/g, '_'));
-    const filePath = path.join(domainDir, `${errorCode}.html`);
-    
-    if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-        logger.info(`Page d'erreur ${errorCode} supprimée pour ${domain}`);
-    }
-    
-    // Nettoyer le dossier s'il est vide
-    if (fs.existsSync(domainDir) && fs.readdirSync(domainDir).length === 0) {
-        fs.rmdirSync(domainDir);
-    }
-}
-
-/**
- * Supprimer toutes les pages d'erreur d'un domaine
- */
-function deleteAllErrorPages(domain) {
-    const domainDir = path.join(NGINX_ERROR_PAGES_DIR, domain.replace(/[^a-zA-Z0-9.-]/g, '_'));
-    
-    if (fs.existsSync(domainDir)) {
-        fs.rmSync(domainDir, { recursive: true, force: true });
-        logger.info(`Toutes les pages d'erreur supprimées pour ${domain}`);
     }
 }
 
@@ -194,49 +99,10 @@ function generateNginxConfig(domain, port, options = {}) {
         sslKeyPath = '',
         redirectHTTP = false,
         targetHost = 'localhost',
-        targetProtocol = 'http',
-        errorPages = {}
+        targetProtocol = 'http'
     } = options;
 
     const upstream = buildProxyPassUrl(targetProtocol, targetHost, port);
-    
-    // Construire les directives error_page pour les erreurs configurées
-    let errorPageDirectives = '';
-    const configuredErrors = Object.keys(errorPages).map(Number).sort((a, b) => a - b);
-    
-    if (configuredErrors.length > 0) {
-        // Grouper les codes d'erreur consécutifs
-        const groups = [];
-        let currentGroup = [configuredErrors[0]];
-        
-        for (let i = 1; i < configuredErrors.length; i++) {
-            if (configuredErrors[i] === configuredErrors[i - 1] + 1) {
-                currentGroup.push(configuredErrors[i]);
-            } else {
-                groups.push([...currentGroup]);
-                currentGroup = [configuredErrors[i]];
-            }
-        }
-        groups.push(currentGroup);
-        
-        // Générer les directives error_page
-        for (const group of groups) {
-            if (group.length === 1) {
-                errorPageDirectives += `    error_page ${group[0]} /error-pages/${group[0]}.html;\n`;
-            } else {
-                errorPageDirectives += `    error_page ${group[0]}-${group[group.length - 1]} /error-pages/${group[0]}.html;\n`;
-            }
-        }
-    }
-    
-    // Location block pour servir les pages d'erreur
-    const errorPagesLocation = configuredErrors.length > 0 ? `
-    # Pages d'erreur personnalisées
-    location /error-pages/ {
-        alias /etc/nginx/custom-error-pages/${domain.replace(/[^a-zA-Z0-9.-]/g, '_')}/;
-        internal;
-    }
-` : '';
 
     let config = '';
 
@@ -249,7 +115,6 @@ function generateNginxConfig(domain, port, options = {}) {
     ssl_certificate     ${sslCertPath};
     ssl_certificate_key ${sslKeyPath};
 
-${errorPageDirectives}${errorPagesLocation}
     location / {
         proxy_pass ${upstream};
         proxy_http_version 1.1;
@@ -279,7 +144,6 @@ ${errorPageDirectives}${errorPagesLocation}
     listen 80;
     server_name ${domain};
 
-${errorPageDirectives}${errorPagesLocation}
     location / {
         proxy_pass ${upstream};
         proxy_http_version 1.1;
@@ -563,9 +427,6 @@ async function deleteNginxConfig(id) {
         fs.unlinkSync(availablePath);
     }
 
-    // Supprimer les pages d'erreur associées
-    deleteAllErrorPages(config.domain);
-
     // Recharger Nginx (démarre automatiquement s'il n'est pas actif)
     await reloadNginx();
 
@@ -717,11 +578,5 @@ export default {
     reloadNginx,
     getNginxStatus,
     readGlobalConfig,
-    updateGlobalConfig,
-    saveErrorPage,
-    getErrorPage,
-    getAllErrorPages,
-    deleteErrorPage,
-    deleteAllErrorPages,
-    SUPPORTED_ERROR_CODES
+    updateGlobalConfig
 };
