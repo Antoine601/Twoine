@@ -323,6 +323,49 @@ class SSLManager {
         logger.info(`Template SSL supprimé: ${template.name}`);
         return true;
     }
+
+    // ============================================
+    // IMPORT / EXPORT
+    // ============================================
+
+    registerCertificate(options) {
+        const {
+            domain,
+            certPath,
+            keyPath,
+            linkedProject = '',
+            provider = 'imported',
+            createdAt = null,
+            expiresAt = null
+        } = options;
+
+        if (!domain || !certPath || !keyPath) {
+            throw new Error('Domaine, chemin du certificat et chemin de la clé sont requis');
+        }
+
+        // Vérifier si un certificat pour ce domaine existe déjà
+        if (this.certificates.some(c => c.domain === domain)) {
+            throw new Error(`Un certificat pour ${domain} existe déjà`);
+        }
+
+        const id = uuidv4();
+        const cert = {
+            id,
+            domain,
+            provider,
+            linkedProject,
+            certPath,
+            keyPath,
+            createdAt: createdAt || new Date().toISOString(),
+            expiresAt
+        };
+
+        this.certificates.push(cert);
+        this.saveDatabase();
+
+        logger.info(`Certificat SSL enregistré: ${domain}`);
+        return cert;
+    }
 }
 
 const sslManager = new SSLManager();

@@ -1809,7 +1809,7 @@ router.post('/export', async (req, res) => {
         req.setTimeout(600000);
         res.setTimeout(600000);
 
-        const { projects: exportProjects, databases: exportDatabases, apiKeys: exportApiKeys, users: exportUsers, includeProjectFiles } = req.body;
+        const { projects: exportProjects, databases: exportDatabases, apiKeys: exportApiKeys, users: exportUsers, includeProjectFiles, nginxConfigs: exportNginxConfigs, sslCertificates: exportSslCertificates } = req.body;
         const exportData = {};
 
         // Exporter les projets avec leurs fichiers
@@ -2020,6 +2020,63 @@ router.post('/export', async (req, res) => {
             exportData.users = allUsers;
         }
 
+        // Exporter les configurations Nginx
+        if (exportNginxConfigs) {
+            const nginxConfigList = nginx.listNginxConfigs();
+            exportData.nginxConfigs = [];
+            
+            for (const config of nginxConfigList) {
+                const configData = {
+                    ...config,
+                    content: null
+                };
+                
+                // Lire le contenu du fichier de configuration
+                try {
+                    const configPath = `/etc/nginx/sites-available/${config.fileName}`;
+                    if (fs.existsSync(configPath)) {
+                        configData.content = fs.readFileSync(configPath, 'utf8');
+                    }
+                } catch (error) {
+                    logger.error(`Erreur lecture config Nginx ${config.domain}: ${error.message}`);
+                    configData.contentError = error.message;
+                }
+                
+                exportData.nginxConfigs.push(configData);
+            }
+            logger.success(`Export: ${nginxConfigList.length} configurations Nginx exportées`);
+        }
+
+        // Exporter les certificats SSL
+        if (exportSslCertificates) {
+            const sslCerts = ssl.getAllCertificates();
+            exportData.sslCertificates = [];
+            
+            for (const cert of sslCerts) {
+                const certData = {
+                    ...cert,
+                    certContent: null,
+                    keyContent: null
+                };
+                
+                // Lire le contenu du certificat et de la clé
+                try {
+                    if (cert.certPath && fs.existsSync(cert.certPath)) {
+                        certData.certContent = fs.readFileSync(cert.certPath, 'utf8');
+                    }
+                    if (cert.keyPath && fs.existsSync(cert.keyPath)) {
+                        certData.keyContent = fs.readFileSync(cert.keyPath, 'utf8');
+                    }
+                } catch (error) {
+                    logger.error(`Erreur lecture certificat SSL ${cert.domain}: ${error.message}`);
+                    certData.readError = error.message;
+                }
+                
+                exportData.sslCertificates.push(certData);
+            }
+            logger.success(`Export: ${sslCerts.length} certificats SSL exportés`);
+        }
+
         res.json({ success: true, data: exportData });
     } catch (error) {
         logger.error(`API Export: ${error.message}`);
@@ -2037,7 +2094,9 @@ router.post('/import', async (req, res) => {
             projects: { success: 0, failed: 0, errors: [] },
             databases: { success: 0, failed: 0, errors: [] },
             apiKeys: { success: 0, failed: 0, errors: [] },
-            users: { success: 0, failed: 0, errors: [] }
+            users: { success: 0, failed: 0, errors: [] },
+            nginxConfigs: { success: 0, failed: 0, errors: [] },
+            sslCertificates: { success: 0, failed: 0, errors: [] }
         };
 
         // Importer les projets
@@ -2305,11 +2364,113 @@ router.post('/import', async (req, res) => {
             }
         }
 
+        // Importer les configurations Nginx
+        if (importData.nginxConfigs && Array.isArray(importData.nginxConfigs)) {
+            for (const config of importData.nginxConfigs) {
+                try {
+                    // Vérifier si la config existe déjà par domaine
+                    const existingConfigs = nginx.listNginxConfigs();
+                    const existing = existingConfigs.find(c => c.domain === config.domain);
+                    
+                    if (!existing) {
+                        // Créer la configuration
+                        const newConfig = await nginx.createNginxConfig(
+                            config.domain,
+                            config.port,
+                            config.description || '',
+                            {
+                                useSSL: config.useSSL || false,
+                                sslCertPath: config.sslCertPath || '',
+                                sslKeyPath: config.sslKeyPath || '',
+                                redirectHTTP: config.redirectHTTP || false,
+                                targetHost: config.targetHost || 'localhost',
+                                targetProtocol: config.targetProtocol || 'http',
+                                linkedProject: config.linkedProject || '',
+                                linkedService: config.linkedService || ''
+                            }
+                        );
+                        
+                        // Restaurer le contenu brut si présent et différent
+                        if (config.content && newConfig) {
+                            try {
+                                const configPath = `/etc/nginx/sites-available/${newConfig.fileName}`;
+                                fs.writeFileSync(configPath, config.content);
+                            } catch (e) {
+                                logger.error(`Erreur restauration contenu Nginx ${config.domain}: ${e.message}`);
+                            }
+                        }
+                        
+                        results.nginxConfigs.success++;
+                    } else {
+                        results.nginxConfigs.failed++;
+                        results.nginxConfigs.errors.push(`Configuration "${config.domain}" existe déjà`);
+                    }
+                } catch (error) {
+                    results.nginxConfigs.failed++;
+                    results.nginxConfigs.errors.push(`${config.domain}: ${error.message}`);
+                }
+            }
+        }
+
+        // Importer les certificats SSL
+        if (importData.sslCertificates && Array.isArray(importData.sslCertificates)) {
+            for (const cert of importData.sslCertificates) {
+                try {
+                    // Vérifier si le certificat existe déjà par domaine
+                    const existingCerts = ssl.getAllCertificates();
+                    const existing = existingCerts.find(c => c.domain === cert.domain);
+                    
+                    if (!existing && cert.certContent && cert.keyContent) {
+                        // Créer les répertoires si nécessaires
+                        const certDir = path.dirname(cert.certPath || `/etc/ssl/certs/${cert.domain}`);
+                        const keyDir = path.dirname(cert.keyPath || `/etc/ssl/private/${cert.domain}`);
+                        
+                        if (!fs.existsSync(certDir)) {
+                            fs.mkdirSync(certDir, { recursive: true });
+                        }
+                        if (!fs.existsSync(keyDir)) {
+                            fs.mkdirSync(keyDir, { recursive: true });
+                        }
+                        
+                        // Écrire les fichiers
+                        const certPath = cert.certPath || `/etc/ssl/certs/${cert.domain}.crt`;
+                        const keyPath = cert.keyPath || `/etc/ssl/private/${cert.domain}.key`;
+                        
+                        fs.writeFileSync(certPath, cert.certContent);
+                        fs.writeFileSync(keyPath, cert.keyContent);
+                        
+                        // Enregistrer dans l'index
+                        ssl.registerCertificate({
+                            domain: cert.domain,
+                            certPath,
+                            keyPath,
+                            linkedProject: cert.linkedProject || '',
+                            createdAt: cert.createdAt || new Date().toISOString(),
+                            expiresAt: cert.expiresAt || null
+                        });
+                        
+                        results.sslCertificates.success++;
+                    } else if (existing) {
+                        results.sslCertificates.failed++;
+                        results.sslCertificates.errors.push(`Certificat "${cert.domain}" existe déjà`);
+                    } else {
+                        results.sslCertificates.failed++;
+                        results.sslCertificates.errors.push(`Certificat "${cert.domain}": contenu manquant`);
+                    }
+                } catch (error) {
+                    results.sslCertificates.failed++;
+                    results.sslCertificates.errors.push(`${cert.domain}: ${error.message}`);
+                }
+            }
+        }
+
         // Construire le message de résultat
         const totalSuccess = results.projects.success + results.databases.success + 
-                           results.apiKeys.success + results.users.success;
+                           results.apiKeys.success + results.users.success +
+                           results.nginxConfigs.success + results.sslCertificates.success;
         const totalFailed = results.projects.failed + results.databases.failed + 
-                          results.apiKeys.failed + results.users.failed;
+                          results.apiKeys.failed + results.users.failed +
+                          results.nginxConfigs.failed + results.sslCertificates.failed;
 
         res.json({
             success: true,

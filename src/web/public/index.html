@@ -250,7 +250,9 @@
                 databases: true,
                 apiKeys: true,
                 users: currentUser?.role === 'admin',
-                includeProjectFiles: false
+                includeProjectFiles: false,
+                nginxConfigs: true,
+                sslCertificates: true
             });
 
             const handleToggle = (key) => {
@@ -365,6 +367,32 @@
                                         </div>
                                     </label>
                             )}
+
+                            <label className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors">
+                                <input
+                                    type="checkbox"
+                                    checked={selectedData.nginxConfigs}
+                                    onChange={() => handleToggle('nginxConfigs')}
+                                    className="w-4 h-4 text-primary-600 rounded focus:ring-2 focus:ring-primary-500"
+                                />
+                                <div className="flex items-center gap-2 flex-1">
+                                    <Icon name="globe" size={18} className="text-gray-500" />
+                                    <span className="text-sm font-medium text-gray-700">Configurations Nginx</span>
+                                </div>
+                            </label>
+
+                            <label className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors">
+                                <input
+                                    type="checkbox"
+                                    checked={selectedData.sslCertificates}
+                                    onChange={() => handleToggle('sslCertificates')}
+                                    className="w-4 h-4 text-primary-600 rounded focus:ring-2 focus:ring-primary-500"
+                                />
+                                <div className="flex items-center gap-2 flex-1">
+                                    <Icon name="shield" size={18} className="text-gray-500" />
+                                    <span className="text-sm font-medium text-gray-700">Certificats SSL</span>
+                                </div>
+                            </label>
                         </div>
 
                         <div className="flex justify-end gap-3 pt-4">
