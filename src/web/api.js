@@ -2842,7 +2842,7 @@ router.put('/nginx/error-pages/:code', async (req, res) => {
 /**
  * DELETE /api/nginx/error-pages/:code - Supprimer une page d'erreur personnalisée
  */
-router.delete('/nginx/error-pages/:code', (req, res) => {
+router.delete('/nginx/error-pages/:code', async (req, res) => {
     try {
         const requestUser = getRequestUser(req);
         if (!requestUser || requestUser.role !== 'admin') {
@@ -2850,7 +2850,7 @@ router.delete('/nginx/error-pages/:code', (req, res) => {
         }
         
         const code = parseInt(req.params.code);
-        nginx.deleteErrorPage(code);
+        await nginx.deleteErrorPage(code);
         res.json({ success: true, message: `Page d'erreur ${code} supprimée` });
     } catch (error) {
         logger.error(`API: ${error.message}`);

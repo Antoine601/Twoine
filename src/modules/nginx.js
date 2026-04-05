@@ -103,6 +103,7 @@ function generateNginxConfig(domain, port, options = {}) {
     } = options;
 
     const upstream = buildProxyPassUrl(targetProtocol, targetHost, port);
+    const errorPagesConfig = generateErrorPagesConfig();
 
     let config = '';
 
@@ -114,7 +115,7 @@ function generateNginxConfig(domain, port, options = {}) {
 
     ssl_certificate     ${sslCertPath};
     ssl_certificate_key ${sslKeyPath};
-
+${errorPagesConfig}
     location / {
         proxy_pass ${upstream};
         proxy_http_version 1.1;
@@ -143,7 +144,7 @@ function generateNginxConfig(domain, port, options = {}) {
         config += `server {
     listen 80;
     server_name ${domain};
-
+${errorPagesConfig}
     location / {
         proxy_pass ${upstream};
         proxy_http_version 1.1;
@@ -636,21 +637,65 @@ async function setErrorPage(errorCode, htmlContent) {
     const pagePath = getErrorPagePath(errorCode);
     fs.writeFileSync(pagePath, htmlContent);
 
-    logger.success(`Page d'erreur ${errorCode} créée/mise à jour`);
+    // Mettre à jour toutes les configurations Nginx existantes pour inclure les pages d'erreur
+    await updateAllNginxConfigsWithErrorPages();
+
+    // Recharger Nginx
+    await reloadNginx();
+
+    logger.success(`Page d'erreur ${errorCode} créée/mise à jour et Nginx rechargé`);
     return true;
 }
 
 /**
  * Supprimer une page d'erreur personnalisée
  */
-function deleteErrorPage(errorCode) {
+async function deleteErrorPage(errorCode) {
     const pagePath = getErrorPagePath(errorCode);
     if (fs.existsSync(pagePath)) {
         fs.unlinkSync(pagePath);
-        logger.info(`Page d'erreur ${errorCode} supprimée`);
+        
+        // Mettre à jour toutes les configurations Nginx
+        await updateAllNginxConfigsWithErrorPages();
+        
+        // Recharger Nginx
+        await reloadNginx();
+        
+        logger.info(`Page d'erreur ${errorCode} supprimée et Nginx rechargé`);
         return true;
     }
     return false;
+}
+
+/**
+ * Mettre à jour toutes les configurations Nginx existantes avec les pages d'erreur
+ */
+async function updateAllNginxConfigsWithErrorPages() {
+    const configs = loadNginxConfigs();
+    
+    for (const config of configs) {
+        try {
+            const fileName = config.fileName;
+            const availablePath = path.join(NGINX_SITES_AVAILABLE, fileName);
+            
+            if (fs.existsSync(availablePath)) {
+                // Régénérer la configuration avec les pages d'erreur
+                const newContent = generateNginxConfig(config.domain, config.port, {
+                    useSSL: config.useSSL,
+                    sslCertPath: config.sslCertPath,
+                    sslKeyPath: config.sslKeyPath,
+                    redirectHTTP: config.redirectHTTP,
+                    targetHost: config.targetHost,
+                    targetProtocol: config.targetProtocol
+                });
+                
+                fs.writeFileSync(availablePath, newContent);
+                logger.info(`Configuration Nginx mise à jour: ${config.domain}`);
+            }
+        } catch (error) {
+            logger.error(`Erreur mise à jour config ${config.domain}: ${error.message}`);
+        }
+    }
 }
 
 /**
