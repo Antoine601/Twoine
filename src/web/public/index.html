@@ -87,12 +87,28 @@
             }
         }
 
+        async function extractApiErrorMessage(res) {
+            const text = await res.text();
+            try {
+                const parsed = JSON.parse(text);
+                if (parsed && typeof parsed.error === 'string' && parsed.error.trim()) {
+                    return parsed.error.trim();
+                }
+                if (parsed && typeof parsed.message === 'string' && parsed.message.trim()) {
+                    return parsed.message.trim();
+                }
+            } catch {
+                // Keep raw text fallback for non-JSON responses
+            }
+            const fallback = text ? text.substring(0, 100) : 'Erreur inconnue';
+            return `Erreur HTTP ${res.status}: ${fallback}`;
+        }
+
         const api = {
             async get(url) {
                 const res = await fetch(url, { headers: getAuthHeaders() });
                 if (!res.ok) {
-                    const text = await res.text();
-                    throw new Error(`Erreur HTTP ${res.status}: ${text.substring(0, 100)}`);
+                    throw new Error(await extractApiErrorMessage(res));
                 }
                 const contentType = res.headers.get('content-type');
                 if (!contentType || !contentType.includes('application/json')) {
@@ -107,8 +123,7 @@
                     body: JSON.stringify(data)
                 });
                 if (!res.ok) {
-                    const text = await res.text();
-                    throw new Error(`Erreur HTTP ${res.status}: ${text.substring(0, 100)}`);
+                    throw new Error(await extractApiErrorMessage(res));
                 }
                 const contentType = res.headers.get('content-type');
                 if (!contentType || !contentType.includes('application/json')) {
@@ -123,8 +138,7 @@
                     body: JSON.stringify(data)
                 });
                 if (!res.ok) {
-                    const text = await res.text();
-                    throw new Error(`Erreur HTTP ${res.status}: ${text.substring(0, 100)}`);
+                    throw new Error(await extractApiErrorMessage(res));
                 }
                 const contentType = res.headers.get('content-type');
                 if (!contentType || !contentType.includes('application/json')) {
@@ -135,8 +149,7 @@
             async del(url) {
                 const res = await fetch(url, { method: 'DELETE', headers: getAuthHeaders() });
                 if (!res.ok) {
-                    const text = await res.text();
-                    throw new Error(`Erreur HTTP ${res.status}: ${text.substring(0, 100)}`);
+                    throw new Error(await extractApiErrorMessage(res));
                 }
                 const contentType = res.headers.get('content-type');
                 if (!contentType || !contentType.includes('application/json')) {
@@ -5593,6 +5606,7 @@
         // Nginx Page
         // ============================================
         function NginxPage({ showToast, currentUser, availableProjects = [] }) {
+            const isAdmin = currentUser?.role === 'admin';
             const [configs, setConfigs] = useState([]);
             const [loading, setLoading] = useState(true);
             const [showCreateModal, setShowCreateModal] = useState(false);
@@ -6813,16 +6827,18 @@
                                                             <div className="flex items-center justify-end gap-2">
                                                                 <button
                                                                     onClick={() => handleEditErrorPage(page.code)}
-                                                                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                                                    title="Modifier"
+                                                                    disabled={!isAdmin}
+                                                                    className={`p-2 rounded-lg transition-colors ${isAdmin ? 'text-blue-600 hover:bg-blue-50' : 'text-gray-300 cursor-not-allowed'}`}
+                                                                    title={isAdmin ? 'Modifier' : 'Action réservée aux administrateurs'}
                                                                 >
                                                                     <Icon name="edit" size={16} />
                                                                 </button>
                                                                 {page.hasCustomPage && (
                                                                     <button
                                                                         onClick={() => handleDeleteErrorPage(page.code)}
-                                                                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                                                        title="Supprimer"
+                                                                        disabled={!isAdmin}
+                                                                        className={`p-2 rounded-lg transition-colors ${isAdmin ? 'text-red-600 hover:bg-red-50' : 'text-gray-300 cursor-not-allowed'}`}
+                                                                        title={isAdmin ? 'Supprimer' : 'Action réservée aux administrateurs'}
                                                                     >
                                                                         <Icon name="trash-2" size={16} />
                                                                     </button>
@@ -6839,6 +6855,9 @@
                                             <Icon name="info" size={16} className="mt-0.5 flex-shrink-0" />
                                             <span>Les pages personnalisées sont stockées dans <code className="px-1 py-0.5 bg-blue-100 rounded text-blue-900">/etc/nginx/error-pages/</code>. Si aucune page personnalisée n'existe, Nginx affiche sa page par défaut.</span>
                                         </p>
+                                        {!isAdmin && (
+                                            <p className="text-sm text-amber-800 mt-2">Mode lecture seule: seules les personnes administratrices peuvent modifier ou supprimer ces pages.</p>
+                                        )}
                                     </div>
                                 </div>
                             </div>
