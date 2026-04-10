@@ -102,6 +102,18 @@ function getUserById(userId) {
 }
 
 /**
+ * Récupère un utilisateur par nom d'utilisateur
+ */
+function getUserByUsername(username) {
+    const data = readUsers();
+    const user = data.users.find(u => u.username === username);
+    if (!user) return null;
+
+    const { password, ...userWithoutPassword } = user;
+    return userWithoutPassword;
+}
+
+/**
  * Crée un nouvel utilisateur
  */
 function createUser(username, password, role = 'user', mustChangePassword = false, firstName = '', lastName = '') {
@@ -287,6 +299,7 @@ export default {
     authenticate,
     listUsers,
     getUserById,
+    getUserByUsername,
     createUser,
     deleteUser,
     changePassword,

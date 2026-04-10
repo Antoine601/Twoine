@@ -80,8 +80,10 @@
                 const saved = localStorage.getItem('websftp_user');
                 if (!saved) return {};
                 const user = JSON.parse(saved);
-                if (!user?.id) return {};
-                return { 'x-twoine-user-id': user.id };
+                const headers = {};
+                if (user?.id) headers['x-twoine-user-id'] = user.id;
+                if (user?.username) headers['x-twoine-username'] = user.username;
+                return headers;
             } catch {
                 return {};
             }

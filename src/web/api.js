@@ -32,8 +32,16 @@ const upload = multer({ dest: '/tmp/uploads/' });
 
 function getRequestUser(req) {
     const userId = req.headers['x-twoine-user-id'] || req.headers['x-user-id'];
-    if (!userId || typeof userId !== 'string') return null;
-    return users.getUserById(userId) || null;
+    if (userId && typeof userId === 'string') {
+        const byId = users.getUserById(userId);
+        if (byId) return byId;
+    }
+    const username = req.headers['x-twoine-username'] || req.headers['x-username'];
+    if (username && typeof username === 'string') {
+        const byUsername = users.getUserByUsername(username);
+        if (byUsername) return byUsername;
+    }
+    return null;
 }
 
 function userCanAccessProject(user, projectName) {
