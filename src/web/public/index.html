@@ -5952,6 +5952,10 @@
             }
 
             async function handleEditErrorPage(errorCode) {
+                if (!isAdmin) {
+                    showToast('Accès refusé', 'error');
+                    return;
+                }
                 try {
                     const result = await api.get(`/api/nginx/error-pages/${errorCode}`);
                     if (result.success) {
@@ -5966,6 +5970,10 @@
 
             async function handleSaveErrorPage(e) {
                 e.preventDefault();
+                if (!isAdmin) {
+                    showToast('Accès refusé', 'error');
+                    return;
+                }
                 try {
                     const result = await api.put(`/api/nginx/error-pages/${selectedErrorPage.code}`, {
                         content: errorPageContent
@@ -5984,6 +5992,10 @@
             }
 
             async function handleDeleteErrorPage(errorCode) {
+                if (!isAdmin) {
+                    showToast('Accès refusé', 'error');
+                    return;
+                }
                 if (!confirm(`Supprimer la page d'erreur personnalisée ${errorCode} ?`)) return;
                 
                 try {
@@ -6000,6 +6012,10 @@
             }
 
             async function handleResetToDefault(errorCode) {
+                if (!isAdmin) {
+                    showToast('Accès refusé', 'error');
+                    return;
+                }
                 try {
                     const result = await api.get(`/api/nginx/error-pages/${errorCode}/default`);
                     if (result.success) {
