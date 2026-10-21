@@ -22,6 +22,14 @@ const PORT = process.env.WEB_PORT || 3847;
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// L'interface est un seul fichier HTML : il doit toujours être relu après une modification.
+app.use((req, res, next) => {
+    if (req.path === '/' || req.path.endsWith('.html')) {
+        res.set('Cache-Control', 'no-store');
+    }
+    next();
+});
+
 // Servir les fichiers statiques du frontend
 app.use(express.static(path.join(__dirname, 'public')));
 

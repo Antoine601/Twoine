@@ -47,7 +47,8 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         body { font-family: 'Inter', sans-serif; }
         .fade-in { animation: fadeIn 0.3s ease-in-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .app-main { overflow-anchor: none; }
         .pulse-dot { animation: pulse 2s infinite; }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
         ::-webkit-scrollbar { width: 8px; }
@@ -70,7 +71,7 @@
     <div id="root" class="h-full"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useCallback, useRef } = React;
+        const { useState, useEffect, useLayoutEffect, useCallback, useRef } = React;
 
         // ============================================
         // API Helper
@@ -6034,7 +6035,7 @@
             }
 
             return (
-                <div className="fade-in">
+                <div>
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                         <div>
                             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Nginx</h1>
@@ -7178,7 +7179,7 @@
             }
 
             return (
-                <div className="fade-in">
+                <div>
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                         <div>
                             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Certificats SSL</h1>
@@ -9351,12 +9352,53 @@
                 if (currentUser) loadProjects(); 
             }, [loadProjects, currentUser]);
 
-            // Auto-refresh every 15s
+            const mainRef = useRef(null);
+            const scrollMemory = useRef({ main: 0, doc: 0, page: null });
+
+            function rememberMainScroll(e) {
+                const el = e.currentTarget;
+                const saved = scrollMemory.current.main;
+                if (el.scrollTop === 0 && saved > 80 && el.scrollHeight <= el.clientHeight + 8) return;
+                scrollMemory.current.main = el.scrollTop;
+            }
+
+            useEffect(() => {
+                function onDocumentScroll(e) {
+                    const doc = document.scrollingElement;
+                    if (!doc || (e.target !== doc && e.target !== document.documentElement && e.target !== document.body)) return;
+                    const saved = scrollMemory.current.doc;
+                    if (doc.scrollTop === 0 && saved > 80 && doc.scrollHeight <= window.innerHeight + 8) return;
+                    scrollMemory.current.doc = doc.scrollTop;
+                }
+                document.addEventListener('scroll', onDocumentScroll, { passive: true, capture: true });
+                return () => document.removeEventListener('scroll', onDocumentScroll, { capture: true });
+            }, []);
+
+            useLayoutEffect(() => {
+                const main = mainRef.current;
+                const doc = document.scrollingElement;
+                if (scrollMemory.current.page !== page) {
+                    scrollMemory.current = { main: 0, doc: 0, page };
+                    if (main) main.scrollTop = 0;
+                    if (doc) doc.scrollTop = 0;
+                    return;
+                }
+                if (main && scrollMemory.current.main > 0 && main.scrollTop + 5 < scrollMemory.current.main) {
+                    main.scrollTop = scrollMemory.current.main;
+                }
+                if (doc && doc !== main && scrollMemory.current.doc > 0 && doc.scrollTop + 5 < scrollMemory.current.doc) {
+                    doc.scrollTop = scrollMemory.current.doc;
+                }
+            });
+
+            // Le statut des projets n'est pas affiché sur Nginx/SSL.
+            // Le laisser se rafraîchir reconstruisait la page et ramenait le scroll en haut.
             useEffect(() => {
                 if (!currentUser) return;
+                if (page === 'nginx' || page === 'ssl') return;
                 const interval = setInterval(loadProjects, 15000);
                 return () => clearInterval(interval);
-            }, [loadProjects, currentUser]);
+            }, [loadProjects, currentUser, page]);
 
             useEffect(() => {
                 function onHashChange() {
@@ -9470,7 +9512,7 @@
                         onExport={() => setShowExportModal(true)}
                         onImport={() => setShowImportModal(true)}
                     />
-                    <main className="flex-1 overflow-y-auto flex flex-col">
+                    <main ref={mainRef} onScroll={rememberMainScroll} className="app-main flex-1 overflow-y-auto flex flex-col">
                         <MobileHeader onMenuClick={() => setSidebarOpen(true)} currentUser={currentUser} />
                         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8 w-full">
                             {renderPage()}
