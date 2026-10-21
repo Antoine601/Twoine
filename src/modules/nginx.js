@@ -120,13 +120,25 @@ ${errorPagesConfig}
         proxy_pass ${upstream};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "";
+        proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_buffering off;
         proxy_request_buffering off;
+
+        # Timeouts pour eviter les erreurs 502
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+
+        # Retry en cas d'erreur temporaire
+        proxy_next_upstream error timeout invalid_header http_502 http_503 http_504;
+        proxy_next_upstream_tries 2;
+
+        # Intercepter les erreurs du backend
+        proxy_intercept_errors on;
     }
 }
 
@@ -151,13 +163,25 @@ ${errorPagesConfig}
         proxy_pass ${upstream};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "";
+        proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_buffering off;
         proxy_request_buffering off;
+
+        # Timeouts pour eviter les erreurs 502
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+
+        # Retry en cas d'erreur temporaire
+        proxy_next_upstream error timeout invalid_header http_502 http_503 http_504;
+        proxy_next_upstream_tries 2;
+
+        # Intercepter les erreurs du backend
+        proxy_intercept_errors on;
     }
 }
 `;
@@ -484,49 +508,83 @@ async function toggleNginxConfig(id, enabled) {
  * Recharger Nginx
  */
 async function reloadNginx() {
+    const errors = [];
+
+    // Essayer systemctl d'abord (environnement classique)
     try {
-        // Vérifier si Nginx est actif
         const { stdout } = await shell.execCommand('systemctl is-active nginx');
         const isActive = stdout.trim() === 'active';
-        
+
         if (!isActive) {
-            // Démarrer Nginx s'il n'est pas actif
             logger.info('Nginx n\'est pas actif, démarrage...');
             await shell.execCommand('systemctl start nginx');
             logger.info('Nginx démarré');
         } else {
-            // Recharger Nginx s'il est déjà actif
             await shell.execCommand('systemctl reload nginx');
             logger.info('Nginx rechargé');
         }
-        
         return true;
     } catch (error) {
-        // Si la commande échoue, essayer de démarrer Nginx
-        logger.warn('Erreur lors de la vérification du statut, tentative de démarrage...');
-        await shell.execCommand('systemctl start nginx');
-        logger.info('Nginx démarré');
-        return true;
+        errors.push(`systemctl: ${error.message}`);
     }
+
+    // Fallback: essayer nginx -s reload (fonctionne dans Docker)
+    try {
+        await shell.execCommand('nginx -s reload');
+        logger.info('Nginx rechargé (via nginx -s reload)');
+        return true;
+    } catch (error) {
+        errors.push(`nginx -s reload: ${error.message}`);
+    }
+
+    // Fallback: essayer service nginx reload
+    try {
+        await shell.execCommand('service nginx reload');
+        logger.info('Nginx rechargé (via service)');
+        return true;
+    } catch (error) {
+        errors.push(`service: ${error.message}`);
+    }
+
+    // Dernier recours: tenter de démarrer nginx directement
+    try {
+        await shell.execCommand('nginx');
+        logger.info('Nginx démarré (via commande nginx directe)');
+        return true;
+    } catch (error) {
+        errors.push(`nginx direct: ${error.message}`);
+    }
+
+    logger.error(`Impossible de recharger Nginx: ${errors.join('; ')}`);
+    throw new Error(`Impossible de recharger Nginx. Erreurs: ${errors.join('; ')}`);
 }
 
 /**
  * Obtenir le statut de Nginx
  */
 async function getNginxStatus() {
+    // Essayer systemctl d'abord
     try {
-        const { stdout } = await shell.execCommand('systemctl status nginx');
-        const isActive = stdout.includes('active (running)');
+        const { stdout } = await shell.execCommand('systemctl is-active nginx');
+        const isActive = stdout.trim() === 'active';
         return {
             active: isActive,
             status: isActive ? 'running' : 'stopped'
         };
-    } catch (error) {
-        return {
-            active: false,
-            status: 'error',
-            error: error.message
-        };
+    } catch {
+        // Fallback: vérifier via pgrep/pidof (pour Docker)
+        try {
+            await shell.execCommand('pgrep nginx');
+            return {
+                active: true,
+                status: 'running'
+            };
+        } catch {
+            return {
+                active: false,
+                status: 'stopped'
+            };
+        }
     }
 }
 
