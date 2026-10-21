@@ -5656,17 +5656,21 @@
             const [sslCertificates, setSslCertificates] = useState([]);
             const [sslTemplates, setSslTemplates] = useState([]);
             const [generatingCert, setGeneratingCert] = useState(false);
+            const showToastRef = useRef(showToast);
+            showToastRef.current = showToast;
+            const configsLoadedRef = useRef(false);
 
             const loadConfigs = useCallback(async () => {
-                setLoading(true);
+                if (!configsLoadedRef.current) setLoading(true);
                 try {
                     const result = await api.get('/api/nginx/configs');
                     if (result.success) setConfigs(result.data);
                 } catch (error) {
-                    showToast('Erreur lors du chargement des configurations', 'error');
+                    showToastRef.current('Erreur lors du chargement des configurations', 'error');
                 }
+                configsLoadedRef.current = true;
                 setLoading(false);
-            }, [showToast]);
+            }, []);
 
             useEffect(() => { loadConfigs(); }, [loadConfigs]);
             useEffect(() => {
@@ -6990,25 +6994,30 @@
                 validityDays: 365
             });
 
+            const showToastRef = useRef(showToast);
+            showToastRef.current = showToast;
+            const certsLoadedRef = useRef(false);
+
             const loadCertificates = useCallback(async () => {
-                setLoading(true);
+                if (!certsLoadedRef.current) setLoading(true);
                 try {
                     const result = await api.get('/api/ssl/certificates');
                     if (result.success) setCertificates(result.data);
                 } catch (error) {
-                    showToast('Erreur lors du chargement des certificats', 'error');
+                    showToastRef.current('Erreur lors du chargement des certificats', 'error');
                 }
+                certsLoadedRef.current = true;
                 setLoading(false);
-            }, [showToast]);
+            }, []);
 
             const loadTemplates = useCallback(async () => {
                 try {
                     const result = await api.get('/api/ssl/templates');
                     if (result.success) setTemplates(result.data);
                 } catch (error) {
-                    showToast('Erreur lors du chargement des templates', 'error');
+                    showToastRef.current('Erreur lors du chargement des templates', 'error');
                 }
-            }, [showToast]);
+            }, []);
 
             useEffect(() => { 
                 loadCertificates(); 
@@ -9364,9 +9373,9 @@
                 window.location.hash = hash;
             }
 
-            function showToast(message, type = 'info') {
+            const showToast = useCallback((message, type = 'info') => {
                 setToast({ message, type });
-            }
+            }, []);
 
             function handleLogin(user) {
                 if (user.mustChangePassword) {
