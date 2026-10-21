@@ -18,6 +18,9 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.WEB_PORT || 3847;
 
+// Sans ça, Express renvoie 304 sans corps. Le navigateur relance alors la requête.
+app.disable('etag');
+
 // Middleware
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -34,6 +37,10 @@ app.use((req, res, next) => {
 app.use(express.static(path.join(__dirname, 'public')));
 
 // API routes
+app.use('/api', (req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+});
 app.use('/api', apiRouter);
 
 // SPA fallback - toutes les routes non-API renvoient index.html

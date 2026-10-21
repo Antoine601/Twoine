@@ -109,7 +109,7 @@
 
         const api = {
             async get(url) {
-                const res = await fetch(url, { headers: getAuthHeaders() });
+                const res = await fetch(url, { cache: 'no-store', headers: getAuthHeaders() });
                 if (!res.ok) {
                     throw new Error(await extractApiErrorMessage(res));
                 }
@@ -122,6 +122,7 @@
             async post(url, data = {}) {
                 const res = await fetch(url, {
                     method: 'POST',
+                    cache: 'no-store',
                     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
                     body: JSON.stringify(data)
                 });
@@ -137,6 +138,7 @@
             async put(url, data = {}) {
                 const res = await fetch(url, {
                     method: 'PUT',
+                    cache: 'no-store',
                     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
                     body: JSON.stringify(data)
                 });
@@ -150,7 +152,7 @@
                 return res.json();
             },
             async del(url) {
-                const res = await fetch(url, { method: 'DELETE', headers: getAuthHeaders() });
+                const res = await fetch(url, { method: 'DELETE', cache: 'no-store', headers: getAuthHeaders() });
                 if (!res.ok) {
                     throw new Error(await extractApiErrorMessage(res));
                 }
@@ -161,6 +163,24 @@
                 return res.json();
             }
         };
+
+        let projectsQuiet = false;
+        let projectsInflight = null;
+        let nginxConfigsLoaded = false;
+        let nginxConfigsCache = null;
+        let sslCertificatesLoaded = false;
+        let sslCertificatesCache = null;
+        let sslTemplatesLoaded = false;
+        let sslTemplatesCache = null;
+
+        function currentHashPage() {
+            const hash = window.location.hash.slice(1);
+            return hash ? hash.split('/')[0] : 'dashboard';
+        }
+
+        function isStaticAdminPage(pageName) {
+            return pageName === 'nginx' || pageName === 'ssl';
+        }
 
         // ============================================
         // Icon Component
@@ -5661,11 +5681,21 @@
             showToastRef.current = showToast;
             const configsLoadedRef = useRef(false);
 
-            const loadConfigs = useCallback(async () => {
+            const loadConfigs = useCallback(async (force = false) => {
+                if (!force && nginxConfigsLoaded) {
+                    if (nginxConfigsCache) setConfigs(nginxConfigsCache);
+                    configsLoadedRef.current = true;
+                    setLoading(false);
+                    return;
+                }
+                if (!force) nginxConfigsLoaded = true;
                 if (!configsLoadedRef.current) setLoading(true);
                 try {
                     const result = await api.get('/api/nginx/configs');
-                    if (result.success) setConfigs(result.data);
+                    if (result.success) {
+                        nginxConfigsCache = result.data;
+                        setConfigs(result.data);
+                    }
                 } catch (error) {
                     showToastRef.current('Erreur lors du chargement des configurations', 'error');
                 }
@@ -5785,7 +5815,7 @@
                             targetHost: 'localhost',
                             targetProtocol: 'http'
                         });
-                        loadConfigs();
+                        loadConfigs(true);
                     } else {
                         showToast(result.error, 'error');
                     }
@@ -5801,7 +5831,7 @@
                     const result = await api.del(`/api/nginx/configs/${config.id}`);
                     if (result.success) {
                         showToast('Configuration supprimée', 'success');
-                        loadConfigs();
+                        loadConfigs(true);
                     } else {
                         showToast(result.error, 'error');
                     }
@@ -5817,7 +5847,7 @@
                     });
                     if (result.success) {
                         showToast(`Configuration ${!config.enabled ? 'activée' : 'désactivée'}`, 'success');
-                        loadConfigs();
+                        loadConfigs(true);
                     } else {
                         showToast(result.error, 'error');
                     }
@@ -5855,7 +5885,7 @@
                         showToast('Configuration mise à jour avec succès', 'success');
                         setShowEditConfigModal(false);
                         setSelectedConfig(null);
-                        loadConfigs();
+                        loadConfigs(true);
                     } else {
                         showToast(result.error, 'error');
                     }
@@ -5889,7 +5919,7 @@
                         showToast('Configuration mise à jour', 'success');
                         setShowEditModal(false);
                         setSelectedConfig(null);
-                        loadConfigs();
+                        loadConfigs(true);
                     } else {
                         showToast(result.error, 'error');
                     }
@@ -6999,11 +7029,21 @@
             showToastRef.current = showToast;
             const certsLoadedRef = useRef(false);
 
-            const loadCertificates = useCallback(async () => {
+            const loadCertificates = useCallback(async (force = false) => {
+                if (!force && sslCertificatesLoaded) {
+                    if (sslCertificatesCache) setCertificates(sslCertificatesCache);
+                    certsLoadedRef.current = true;
+                    setLoading(false);
+                    return;
+                }
+                if (!force) sslCertificatesLoaded = true;
                 if (!certsLoadedRef.current) setLoading(true);
                 try {
                     const result = await api.get('/api/ssl/certificates');
-                    if (result.success) setCertificates(result.data);
+                    if (result.success) {
+                        sslCertificatesCache = result.data;
+                        setCertificates(result.data);
+                    }
                 } catch (error) {
                     showToastRef.current('Erreur lors du chargement des certificats', 'error');
                 }
@@ -7011,10 +7051,18 @@
                 setLoading(false);
             }, []);
 
-            const loadTemplates = useCallback(async () => {
+            const loadTemplates = useCallback(async (force = false) => {
+                if (!force && sslTemplatesLoaded) {
+                    if (sslTemplatesCache) setTemplates(sslTemplatesCache);
+                    return;
+                }
+                if (!force) sslTemplatesLoaded = true;
                 try {
                     const result = await api.get('/api/ssl/templates');
-                    if (result.success) setTemplates(result.data);
+                    if (result.success) {
+                        sslTemplatesCache = result.data;
+                        setTemplates(result.data);
+                    }
                 } catch (error) {
                     showToastRef.current('Erreur lors du chargement des templates', 'error');
                 }
@@ -7052,7 +7100,7 @@
                             email: '',
                             validityDays: 365
                         });
-                        loadCertificates();
+                        loadCertificates(true);
                     } else {
                         showToast(result.error, 'error');
                     }
@@ -7068,7 +7116,7 @@
                     const result = await api.del(`/api/ssl/certificates/${cert.id}`);
                     if (result.success) {
                         showToast('Certificat supprimé', 'success');
-                        loadCertificates();
+                        loadCertificates(true);
                     } else {
                         showToast(result.error, 'error');
                     }
@@ -7136,7 +7184,7 @@
                         showToast('Template sauvegardé avec succès', 'success');
                         setShowSaveTemplateModal(false);
                         setTemplateName('');
-                        loadTemplates();
+                        loadTemplates(true);
                     } else {
                         showToast(result.error, 'error');
                     }
@@ -7169,7 +7217,7 @@
                     const result = await api.del(`/api/ssl/templates/${templateId}`);
                     if (result.success) {
                         showToast('Template supprimé', 'success');
-                        loadTemplates();
+                        loadTemplates(true);
                     } else {
                         showToast(result.error, 'error');
                     }
@@ -9344,8 +9392,25 @@
             const [showImportModal, setShowImportModal] = useState(false);
 
             const loadProjects = useCallback(async () => {
-                const result = await api.get('/api/projects');
-                if (result.success) setAllProjects(result.data || []);
+                const current = currentHashPage();
+                const staticPage = isStaticAdminPage(current);
+                if (!staticPage) {
+                    projectsQuiet = false;
+                } else if (projectsQuiet || projectsInflight) {
+                    return projectsInflight;
+                }
+                if (projectsInflight) return projectsInflight;
+                if (staticPage) projectsQuiet = true;
+
+                projectsInflight = (async () => {
+                    try {
+                        const result = await api.get('/api/projects');
+                        if (result.success) setAllProjects(result.data || []);
+                    } finally {
+                        projectsInflight = null;
+                    }
+                })();
+                return projectsInflight;
             }, []);
 
             useEffect(() => { 
@@ -9391,14 +9456,14 @@
                 }
             });
 
-            // Le statut des projets n'est pas affiché sur Nginx/SSL.
-            // Le laisser se rafraîchir reconstruisait la page et ramenait le scroll en haut.
             useEffect(() => {
                 if (!currentUser) return;
-                if (page === 'nginx' || page === 'ssl') return;
-                const interval = setInterval(loadProjects, 15000);
+                const interval = setInterval(() => {
+                    if (isStaticAdminPage(currentHashPage())) return;
+                    loadProjects();
+                }, 15000);
                 return () => clearInterval(interval);
-            }, [loadProjects, currentUser, page]);
+            }, [loadProjects, currentUser]);
 
             useEffect(() => {
                 function onHashChange() {
