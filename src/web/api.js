@@ -16,6 +16,7 @@ import aiModels from '../modules/aiModels.js';
 import apiKeys from '../modules/apiKeys.js';
 import nginx from '../modules/nginx.js';
 import ssl from '../modules/ssl.js';
+import layout from '../modules/layout.js';
 import multer from 'multer';
 import path from 'path';
 import https from 'https';
@@ -150,6 +151,8 @@ router.put('/projects/:name/rename', async (req, res) => {
         }
 
         await projects.renameProject(req.params.name, newName);
+        layout.renameItem('projects', req.params.name, newName);
+        layout.renameScope(`services:${req.params.name}`, `services:${newName}`);
         res.json({ 
             success: true, 
             message: `Projet renommé: ${req.params.name} → ${newName}`,
@@ -3121,6 +3124,26 @@ router.delete('/ssl/templates/:id', (req, res) => {
         res.json({ success: true, message: 'Template supprimé' });
     } catch (error) {
         logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// RANGEMENT (ordre et dossiers de l'interface)
+// ============================================
+
+router.get('/layout/:scope', (req, res) => {
+    try {
+        res.json({ success: true, data: layout.getLayout(req.params.scope) });
+    } catch (error) {
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+router.put('/layout/:scope', (req, res) => {
+    try {
+        res.json({ success: true, data: layout.saveLayout(req.params.scope, req.body || {}) });
+    } catch (error) {
         res.status(400).json({ success: false, error: error.message });
     }
 });

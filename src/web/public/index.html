@@ -276,6 +276,332 @@
             );
         }
 
+        }
+
+        let boardDrag = null;
+
+        function OrganizedBoard({ scope, entries, className = 'grid gap-3', empty = null }) {
+            const [layout, setLayout] = useState({ folders: [], placements: {} });
+            const [currentFolder, setCurrentFolder] = useState(null);
+            const [creating, setCreating] = useState(false);
+            const [folderName, setFolderName] = useState('');
+            const [renaming, setRenaming] = useState(null);
+            const [dragOver, setDragOver] = useState(null);
+
+            useEffect(() => {
+                let cancelled = false;
+                setCurrentFolder(null);
+                api.get('/api/layout/' + encodeURIComponent(scope)).then(result => {
+                    if (cancelled) return;
+                    if (result.success && result.data) {
+                        setLayout({
+                            folders: Array.isArray(result.data.folders) ? result.data.folders : [],
+                            placements: result.data.placements || {}
+                        });
+                    }
+                }).catch(() => {});
+                return () => { cancelled = true; };
+            }, [scope]);
+
+            function commit(next) {
+                setLayout(next);
+                api.put('/api/layout/' + encodeURIComponent(scope), next).catch(() => {});
+            }
+
+            function cloneLayout(source) {
+                return {
+                    folders: source.folders.map(folder => ({ ...folder })),
+                    placements: Object.fromEntries(Object.entries(source.placements || {}).map(([id, placement]) => [id, { ...placement }]))
+                };
+            }
+
+            function itemFolderId(id) {
+                const folderId = layout.placements[id]?.folderId || null;
+                if (folderId && !layout.folders.some(folder => folder.id === folderId)) return null;
+                return folderId;
+            }
+
+            function itemOrder(id, index) {
+                const order = layout.placements[id]?.order;
+                return Number.isFinite(order) ? order : index;
+            }
+
+            const visibleFolders = layout.folders
+                .filter(folder => (folder.parentId || null) === (currentFolder || null))
+                .map(folder => ({ kind: 'folder', id: folder.id, name: folder.name, order: Number.isFinite(folder.order) ? folder.order : 0 }));
+
+            const visibleItems = entries
+                .map((entry, index) => ({ kind: 'item', id: entry.id, order: itemOrder(entry.id, index) }))
+                .filter(entry => itemFolderId(entry.id) === (currentFolder || null));
+
+            const visible = [...visibleFolders, ...visibleItems].sort((a, b) => a.order - b.order || (a.kind === 'folder' ? -1 : 1));
+
+            function folderTrail() {
+                const trail = [];
+                let cursor = layout.folders.find(folder => folder.id === currentFolder);
+                while (cursor) {
+                    trail.unshift(cursor);
+                    cursor = layout.folders.find(folder => folder.id === cursor.parentId);
+                }
+                return trail;
+            }
+
+            function childCount(folderId) {
+                const nested = layout.folders.filter(folder => folder.parentId === folderId).length;
+                const items = entries.filter(entry => itemFolderId(entry.id) === folderId).length;
+                return nested + items;
+            }
+
+            function createFolder(event) {
+                event.preventDefault();
+                const name = folderName.trim();
+                if (!name) return;
+                const next = cloneLayout(layout);
+                const order = visible.length;
+                next.folders.push({
+                    id: (crypto.randomUUID ? crypto.randomUUID() : ('fld-' + Date.now().toString(36) + Math.random().toString(36).slice(2))),
+                    name,
+                    parentId: currentFolder || null,
+                    order
+                });
+                setCreating(false);
+                setFolderName('');
+                commit(next);
+            }
+
+            function renameFolder(event) {
+                event.preventDefault();
+                const name = folderName.trim();
+                if (!name || !renaming) return;
+                const next = cloneLayout(layout);
+                const folder = next.folders.find(item => item.id === renaming);
+                if (folder) folder.name = name;
+                setRenaming(null);
+                setFolderName('');
+                commit(next);
+            }
+
+            function removeFolder(folderId) {
+                const folder = layout.folders.find(item => item.id === folderId);
+                if (!folder) return;
+                if (!confirm(`Supprimer le dossier "${folder.name}" ? Les éléments qu'il contient seront ressortis.`)) return;
+                const next = cloneLayout(layout);
+                const parentId = folder.parentId || null;
+                next.folders = next.folders.filter(item => item.id !== folderId);
+                next.folders.forEach(item => {
+                    if (item.parentId === folderId) item.parentId = parentId;
+                });
+                Object.keys(next.placements).forEach(itemId => {
+                    if (next.placements[itemId].folderId === folderId) next.placements[itemId].folderId = parentId;
+                });
+                if (currentFolder === folderId) setCurrentFolder(parentId);
+                commit(next);
+            }
+
+            function moveItemToFolder(itemId, folderId) {
+                const next = cloneLayout(layout);
+                const siblings = entries.filter(entry => (next.placements[entry.id]?.folderId || null) === folderId && entry.id !== itemId);
+                const orders = siblings.map(entry => next.placements[entry.id]?.order).filter(order => Number.isFinite(order));
+                const order = orders.length ? Math.max(...orders) + 1 : siblings.length;
+                next.placements[itemId] = { folderId, order };
+                commit(next);
+            }
+
+            function moveItemToCurrent(itemId) {
+                moveItemToFolder(itemId, currentFolder);
+            }
+
+            function reorder(drag, target) {
+                const list = visible.filter(entry => !(entry.kind === drag.kind && entry.id === drag.id));
+                const index = list.findIndex(entry => entry.kind === target.kind && entry.id === target.id);
+                const moved = { kind: drag.kind, id: drag.id };
+                if (index < 0) list.push(moved);
+                else list.splice(index, 0, moved);
+                const next = cloneLayout(layout);
+                list.forEach((entry, index) => {
+                    if (entry.kind === 'folder') {
+                        const folder = next.folders.find(item => item.id === entry.id);
+                        if (folder) folder.order = index;
+                    } else {
+                        next.placements[entry.id] = { folderId: currentFolder || null, order: index };
+                    }
+                });
+                commit(next);
+            }
+
+            function onDragStart(event, entry) {
+                boardDrag = { kind: entry.kind, id: entry.id };
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/plain', entry.id);
+                event.stopPropagation();
+            }
+
+            function onDragEnd() {
+                boardDrag = null;
+                setDragOver(null);
+            }
+
+            function onDragOverEntry(event, entry) {
+                if (!boardDrag) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const key = entry.kind + ':' + entry.id;
+                if (dragOver !== key) setDragOver(key);
+            }
+
+            function onDropEntry(event, entry) {
+                event.preventDefault();
+                event.stopPropagation();
+                const drag = boardDrag;
+                boardDrag = null;
+                setDragOver(null);
+                if (!drag || (drag.kind === entry.kind && drag.id === entry.id)) return;
+                if (drag.kind === 'item' && entry.kind === 'folder') {
+                    moveItemToFolder(drag.id, entry.id);
+                    return;
+                }
+                reorder(drag, entry);
+            }
+
+            function onDropBreadcrumb(event, folderId) {
+                event.preventDefault();
+                const drag = boardDrag;
+                boardDrag = null;
+                setDragOver(null);
+                if (!drag || drag.kind !== 'item') return;
+                moveItemToFolder(drag.id, folderId);
+            }
+
+            const trail = folderTrail();
+            const nodes = Object.fromEntries(entries.map(entry => [entry.id, entry.node]));
+
+            return (
+                <div>
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <div className="flex flex-wrap items-center gap-1.5 text-sm min-w-0">
+                            <button
+                                type="button"
+                                onClick={() => setCurrentFolder(null)}
+                                onDragOver={event => { if (boardDrag?.kind === 'item') { event.preventDefault(); setDragOver('root'); } }}
+                                onDrop={event => onDropBreadcrumb(event, null)}
+                                className={`px-2 py-1 rounded-lg transition-colors ${currentFolder ? 'text-primary-600 hover:bg-primary-50' : 'text-gray-900 font-medium'} ${dragOver === 'root' ? 'bg-primary-100' : ''}`}
+                            >
+                                Tout
+                            </button>
+                            {trail.map(folder => (
+                                <React.Fragment key={folder.id}>
+                                    <span className="text-gray-300">/</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setCurrentFolder(folder.id)}
+                                        onDragOver={event => { if (boardDrag?.kind === 'item') { event.preventDefault(); setDragOver('crumb:' + folder.id); } }}
+                                        onDrop={event => onDropBreadcrumb(event, folder.id)}
+                                        className={`px-2 py-1 rounded-lg transition-colors ${folder.id === currentFolder ? 'text-gray-900 font-medium' : 'text-primary-600 hover:bg-primary-50'} ${dragOver === 'crumb:' + folder.id ? 'bg-primary-100' : ''}`}
+                                    >
+                                        {folder.name}
+                                    </button>
+                                </React.Fragment>
+                            ))}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => { setCreating(true); setRenaming(null); setFolderName(''); }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 text-sm transition-colors"
+                        >
+                            <Icon name="folder-plus" size={14} /> Nouveau dossier
+                        </button>
+                    </div>
+
+                    {creating && (
+                        <form onSubmit={createFolder} className="flex gap-2 mb-3">
+                            <input
+                                autoFocus
+                                value={folderName}
+                                onChange={event => setFolderName(event.target.value)}
+                                placeholder="Nom du dossier"
+                                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-primary-500"
+                            />
+                            <button type="submit" className="px-3 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm">Créer</button>
+                            <button type="button" onClick={() => setCreating(false)} className="px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-600">Annuler</button>
+                        </form>
+                    )}
+
+                    <div
+                        className={className}
+                        onDragOver={event => { if (boardDrag?.kind === 'item' && currentFolder) event.preventDefault(); }}
+                        onDrop={event => { if (boardDrag?.kind === 'item' && currentFolder) { event.preventDefault(); moveItemToCurrent(boardDrag.id); boardDrag = null; setDragOver(null); } }}
+                    >
+                        {visible.map(entry => entry.kind === 'folder' ? (
+                            <div
+                                key={'folder-' + entry.id}
+                                onDragOver={event => onDragOverEntry(event, entry)}
+                                onDrop={event => onDropEntry(event, entry)}
+                                className={`bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-3 ${dragOver === 'folder:' + entry.id ? 'ring-2 ring-primary-400' : ''}`}
+                            >
+                                <div
+                                    draggable
+                                    onDragStart={event => onDragStart(event, entry)}
+                                    onDragEnd={onDragEnd}
+                                    className="cursor-grab text-amber-700 p-1"
+                                    title="Déplacer le dossier"
+                                >
+                                    <Icon name="grip-vertical" size={16} />
+                                </div>
+                                <button type="button" onClick={() => setCurrentFolder(entry.id)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
+                                    <Icon name="folder" size={18} className="text-amber-600 shrink-0" />
+                                    <span className="font-medium text-gray-900 truncate">{entry.name}</span>
+                                    <span className="text-xs text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">{childCount(entry.id)}</span>
+                                </button>
+                                <button type="button" onClick={() => { setRenaming(entry.id); setCreating(false); setFolderName(entry.name); }} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-white" title="Renommer">
+                                    <Icon name="pencil" size={14} />
+                                </button>
+                                <button type="button" onClick={() => removeFolder(entry.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-white" title="Supprimer le dossier">
+                                    <Icon name="trash-2" size={14} />
+                                </button>
+                            </div>
+                        ) : (
+                            <div
+                                key={entry.id}
+                                onDragOver={event => onDragOverEntry(event, entry)}
+                                onDrop={event => onDropEntry(event, entry)}
+                                className={`flex items-stretch gap-2 min-w-0 ${dragOver === 'item:' + entry.id ? 'ring-2 ring-primary-400 rounded-xl' : ''}`}
+                            >
+                                <div
+                                    draggable
+                                    onDragStart={event => onDragStart(event, entry)}
+                                    onDragEnd={onDragEnd}
+                                    className="cursor-grab text-gray-400 hover:text-gray-700 px-1 flex items-center"
+                                    title="Déplacer"
+                                >
+                                    <Icon name="grip-vertical" size={16} />
+                                </div>
+                                <div className="flex-1 min-w-0">{nodes[entry.id]}</div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {renaming && (
+                        <form onSubmit={renameFolder} className="flex gap-2 mt-3">
+                            <input
+                                autoFocus
+                                value={folderName}
+                                onChange={event => setFolderName(event.target.value)}
+                                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-primary-500"
+                            />
+                            <button type="submit" className="px-3 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm">Renommer</button>
+                            <button type="button" onClick={() => setRenaming(null)} className="px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-600">Annuler</button>
+                        </form>
+                    )}
+
+                    {visible.length === 0 && (
+                        currentFolder
+                            ? <p className="text-sm text-gray-500 text-center py-8">Ce dossier est vide. Glissez un élément sur le dossier, ou déposez-le ici.</p>
+                            : empty
+                    )}
+                </div>
+            );
+        }
+
         // ============================================
         // Export Modal
         // ============================================
@@ -1023,10 +1349,12 @@
                                 </button>
                             </div>
                         ) : (
-                            <div className="divide-y divide-gray-200">
-                                {projects.slice(0, 5).map(project => (
+                            <div className="px-2 py-2">
+                            <OrganizedBoard
+                                scope="projects"
+                                className="flex flex-col"
+                                entries={projects.map(project => ({ id: project.name, node: (
                                     <button
-                                        key={project.name}
                                         onClick={() => onNavigate('project-detail', project.name)}
                                         className="w-full flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 hover:bg-gray-50 transition-colors text-left">
                                         <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
@@ -1046,7 +1374,8 @@
                                             <Icon name="chevron-right" size={16} className="text-gray-400 hidden sm:block" />
                                         </div>
                                     </button>
-                                ))}
+                                )}))}
+                            </OrganizedBoard>
                             </div>
                         )}
                     </div>
@@ -1114,9 +1443,8 @@
                             </button>
                         </div>
                     ) : (
-                        <div className="grid gap-3 sm:gap-4">
-                            {projects.map(project => (
-                                <div key={project.name} className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 hover:border-gray-300 hover:shadow-md transition-all">
+                        <OrganizedBoard scope="projects" className="grid gap-3 sm:gap-4" entries={projects.map(project => ({ id: project.name, node: (
+                                <div className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 hover:border-gray-300 hover:shadow-md transition-all">
                                     <div className="flex items-start sm:items-center justify-between gap-3">
                                         <button onClick={() => onNavigate('project-detail', project.name)} className="flex items-center gap-3 sm:gap-4 text-left flex-1 min-w-0">
                                             <div className="w-10 h-10 sm:w-12 sm:h-12 bg-primary-50 rounded-xl flex items-center justify-center shrink-0">
@@ -1159,8 +1487,8 @@
                                         </div>
                                     </div>
                                 </div>
-                            ))}
-                        </div>
+                            )}))}
+                        </OrganizedBoard>
                     )}
 
                     {deleteTarget && (
@@ -1582,9 +1910,8 @@
                                     </button>
                                 </div>
                             ) : (
-                                <div className="divide-y divide-gray-100">
-                                    {svcList.map(svc => (
-                                        <div key={svc.name} className="px-6 py-4 hover:bg-gray-50/70 transition-colors group">
+                                <OrganizedBoard scope={'services:' + projectName} className="divide-y divide-gray-100" entries={svcList.map(svc => ({ id: svc.name, node: (
+                                        <div className="px-6 py-4 hover:bg-gray-50/70 transition-colors group">
                                             <div className="flex items-center justify-between gap-4">
                                                 <div className="flex items-center gap-4 flex-1 min-w-0">
                                                     <StatusBadge status={svc.status} />
@@ -1633,8 +1960,8 @@
                                                 </div>
                                             </div>
                                         </div>
-                                    ))}
-                                </div>
+                                    )}))}
+                                </OrganizedBoard>
                             )}
                         </div>
                     )}
@@ -3293,6 +3620,57 @@
             );
         }
 
+        function readAllDirectoryEntries(reader) {
+            return new Promise(resolve => {
+                const all = [];
+                function readBatch() {
+                    reader.readEntries(entries => {
+                        if (!entries.length) {
+                            resolve(all);
+                            return;
+                        }
+                        all.push(...entries);
+                        readBatch();
+                    });
+                }
+                readBatch();
+            });
+        }
+
+        async function collectFileEntry(entry, prefix) {
+            if (entry.isFile) {
+                const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+                return [{ file, relativePath: prefix ? `${prefix}/${file.name}` : file.name }];
+            }
+            if (entry.isDirectory) {
+                const dirPrefix = prefix ? `${prefix}/${entry.name}` : entry.name;
+                const children = await readAllDirectoryEntries(entry.createReader());
+                const collected = [];
+                for (const child of children) collected.push(...await collectFileEntry(child, dirPrefix));
+                return collected;
+            }
+            return [];
+        }
+
+        async function collectDataTransfer(dataTransfer) {
+            const items = Array.from(dataTransfer?.items || []);
+            const collected = [];
+            for (const item of items) {
+                const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+                if (entry) collected.push(...await collectFileEntry(entry, ''));
+                else if (item.getAsFile) {
+                    const file = item.getAsFile();
+                    if (file) collected.push({ file, relativePath: file.name });
+                }
+            }
+            if (collected.length === 0 && dataTransfer?.files) {
+                for (const file of Array.from(dataTransfer.files)) {
+                    collected.push({ file, relativePath: file.webkitRelativePath || file.name });
+                }
+            }
+            return collected;
+        }
+
         // ============================================
         // SFTP Browser Page
         // ============================================
@@ -3413,40 +3791,11 @@
                 loadFiles(currentPath);
             }
 
-            async function collectEntry(entry, prefix) {
-                if (entry.isFile) {
-                    return new Promise(resolve => entry.file(f => resolve([{ file: f, relativePath: prefix ? `${prefix}/${f.name}` : f.name }])));
-                }
-                if (entry.isDirectory) {
-                    const reader = entry.createReader();
-                    const dirPrefix = prefix ? `${prefix}/${entry.name}` : entry.name;
-                    return new Promise(resolve => {
-                        const results = [];
-                        function readBatch() {
-                            reader.readEntries(async entries => {
-                                if (entries.length === 0) { resolve(results); return; }
-                                for (const e of entries) { results.push(...(await collectEntry(e, dirPrefix))); }
-                                readBatch();
-                            });
-                        }
-                        readBatch();
-                    });
-                }
-                return [];
-            }
-
             async function onDrop(e) {
                 e.preventDefault();
                 e.stopPropagation();
                 setIsDragOver(false);
-                const items = Array.from(e.dataTransfer.items);
-                const allEntries = [];
-                for (const item of items) {
-                    const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
-                    if (entry) { allEntries.push(...(await collectEntry(entry, ''))); }
-                    else if (item.getAsFile) { const f = item.getAsFile(); if (f) allEntries.push({ file: f, relativePath: f.name }); }
-                }
-                await uploadEntriesWithProgress(allEntries);
+                await uploadEntriesWithProgress(await collectDataTransfer(e.dataTransfer));
             }
 
             function onDragOver(e) { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); }
@@ -3651,36 +4000,45 @@
 
         // Upload File Modal
         function UploadFileModal({ projectName, currentPath, onClose, onSuccess, showToast, uploadEntriesWithProgress }) {
-            const [uploadMode, setUploadMode] = useState('files');
-            const [selectedFiles, setSelectedFiles] = useState([]);
+            const [selectedEntries, setSelectedEntries] = useState([]);
             const [progress, setProgress] = useState(null);
+            const [modalDragOver, setModalDragOver] = useState(false);
             const fileInputRef = useRef(null);
             const folderInputRef = useRef(null);
 
-            function handleFileSelection(e) {
-                setSelectedFiles(Array.from(e.target.files));
+            function appendFiles(fileList) {
+                const incoming = Array.from(fileList || []).map(file => ({
+                    file,
+                    relativePath: file.webkitRelativePath || file.name
+                }));
+                if (incoming.length === 0) return;
+                setSelectedEntries(prev => [...prev, ...incoming]);
+            }
+
+            async function handleModalDrop(event) {
+                event.preventDefault();
+                event.stopPropagation();
+                setModalDragOver(false);
+                const incoming = await collectDataTransfer(event.dataTransfer);
+                if (incoming.length === 0) return;
+                setSelectedEntries(prev => [...prev, ...incoming]);
             }
 
             async function handleUpload(e) {
                 e.preventDefault();
-                if (selectedFiles.length === 0) return;
-
-                const entries = selectedFiles.map(file => ({
-                    file,
-                    relativePath: (uploadMode === 'folder' && file.webkitRelativePath) ? file.webkitRelativePath : file.name
-                }));
+                if (selectedEntries.length === 0) return;
 
                 let done = 0;
-                const total = entries.length;
+                const total = selectedEntries.length;
                 setProgress({ current: 0, total, percent: 0, filename: '' });
 
-                for (const { file, relativePath } of entries) {
+                for (const { file, relativePath } of selectedEntries) {
                     setProgress({ current: done, total, percent: Math.round((done / total) * 100), filename: relativePath });
                     const formData = new FormData();
                     formData.append('path', currentPath);
                     formData.append('files', file);
                     formData.append('relativePath_0', relativePath);
-                    try { await fetch(`/api/projects/${projectName}/files/upload`, { method: 'POST', body: formData }); } catch {}
+                    try { await fetch(`/api/projects/${projectName}/files/upload`, { method: 'POST', cache: 'no-store', body: formData, headers: getAuthHeaders() }); } catch {}
                     done++;
                 }
 
@@ -3689,47 +4047,48 @@
                 onSuccess();
             }
 
-            const totalSize = selectedFiles.reduce((sum, f) => sum + f.size, 0);
+            const totalSize = selectedEntries.reduce((sum, entry) => sum + entry.file.size, 0);
 
             return (
-                <Modal title="Upload fichiers / dossier" onClose={!progress ? onClose : undefined}>
+                <Modal title="Upload fichiers / dossiers" onClose={!progress ? onClose : undefined}>
                     <div className="space-y-4">
                         <div className="flex gap-2">
-                            <button type="button" onClick={() => { setUploadMode('files'); setSelectedFiles([]); }}
-                                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${uploadMode === 'files' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
-                                <Icon name="file" size={14} /> Fichiers
+                            <button type="button" onClick={() => fileInputRef.current?.click()}
+                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border bg-white text-gray-700 border-gray-300 hover:bg-gray-50">
+                                <Icon name="file" size={14} /> Ajouter des fichiers
                             </button>
-                            <button type="button" onClick={() => { setUploadMode('folder'); setSelectedFiles([]); }}
-                                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${uploadMode === 'folder' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
-                                <Icon name="folder" size={14} /> Dossier
+                            <button type="button" onClick={() => folderInputRef.current?.click()}
+                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border bg-white text-gray-700 border-gray-300 hover:bg-gray-50">
+                                <Icon name="folder" size={14} /> Ajouter des dossiers
                             </button>
                         </div>
 
                         <div
-                            onClick={() => (uploadMode === 'folder' ? folderInputRef : fileInputRef).current?.click()}
-                            className="border-2 border-dashed border-gray-300 hover:border-primary-400 rounded-xl p-8 text-center cursor-pointer transition-colors"
+                            onDragOver={event => { event.preventDefault(); setModalDragOver(true); }}
+                            onDragLeave={() => setModalDragOver(false)}
+                            onDrop={handleModalDrop}
+                            className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${modalDragOver ? 'border-primary-500 bg-primary-50' : 'border-gray-300'}`}
                         >
                             <Icon name="upload-cloud" size={36} className="mx-auto mb-2 text-gray-400" />
-                            <p className="text-sm text-gray-600 font-medium">
-                                {uploadMode === 'folder' ? 'Cliquer pour sélectionner un dossier' : 'Cliquer pour sélectionner des fichiers'}
-                            </p>
-                            <p className="text-xs text-gray-400 mt-1">Ou glissez-déposez directement dans le gestionnaire</p>
-                            <input ref={fileInputRef} type="file" multiple onChange={handleFileSelection} className="hidden" />
-                            <input ref={folderInputRef} type="file" webkitdirectory="true" onChange={handleFileSelection} className="hidden" />
+                            <p className="text-sm text-gray-700 font-medium">Déposez plusieurs fichiers et dossiers ici</p>
+                            <p className="text-xs text-gray-500 mt-1">Sélectionnez-les ensemble dans l'explorateur, puis lâchez-les ici. Le bouton dossiers ajoute un dossier à la sélection : recliquez pour en ajouter d'autres.</p>
+                            <input ref={fileInputRef} type="file" multiple onChange={event => { appendFiles(event.target.files); event.target.value = ''; }} className="hidden" />
+                            <input ref={folderInputRef} type="file" multiple webkitdirectory="" directory="" onChange={event => { appendFiles(event.target.files); event.target.value = ''; }} className="hidden" />
                         </div>
 
-                        {selectedFiles.length > 0 && (
+                        {selectedEntries.length > 0 && (
                             <div className="bg-gray-50 rounded-lg border border-gray-200 p-3">
-                                <p className="text-xs font-medium text-gray-700 mb-2">
-                                    {selectedFiles.length} fichier(s) — {(totalSize / 1024 / 1024).toFixed(2)} MB
-                                </p>
+                                <div className="flex items-center justify-between mb-2">
+                                    <p className="text-xs font-medium text-gray-700">
+                                        {selectedEntries.length} fichier(s) — {(totalSize / 1024 / 1024).toFixed(2)} MB
+                                    </p>
+                                    <button type="button" onClick={() => setSelectedEntries([])} className="text-xs text-gray-500 hover:text-red-600">Vider</button>
+                                </div>
                                 <div className="max-h-28 overflow-y-auto space-y-0.5">
-                                    {selectedFiles.slice(0, 12).map((file, i) => (
-                                        <p key={i} className="text-xs text-gray-500 truncate">
-                                            {uploadMode === 'folder' && file.webkitRelativePath ? file.webkitRelativePath : file.name}
-                                        </p>
+                                    {selectedEntries.slice(0, 12).map((entry, i) => (
+                                        <p key={i} className="text-xs text-gray-500 truncate">{entry.relativePath}</p>
                                     ))}
-                                    {selectedFiles.length > 12 && <p className="text-xs text-gray-400 italic">... et {selectedFiles.length - 12} autre(s)</p>}
+                                    {selectedEntries.length > 12 && <p className="text-xs text-gray-400 italic">... et {selectedEntries.length - 12} autre(s)</p>}
                                 </div>
                             </div>
                         )}
@@ -3751,8 +4110,8 @@
                             <button type="button" onClick={onClose} disabled={!!progress} className="px-4 py-2 rounded-lg bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 text-sm transition-colors disabled:opacity-40">
                                 Annuler
                             </button>
-                            <button onClick={handleUpload} disabled={!!progress || selectedFiles.length === 0} className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium transition-colors disabled:opacity-50">
-                                {progress ? 'Upload...' : `Uploader (${selectedFiles.length})`}
+                            <button onClick={handleUpload} disabled={!!progress || selectedEntries.length === 0} className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium transition-colors disabled:opacity-50">
+                                {progress ? 'Upload...' : `Uploader (${selectedEntries.length})`}
                             </button>
                         </div>
                     </div>
@@ -3952,88 +4311,25 @@
                             )}
                         </div>
                     ) : (
-                        <div className="space-y-8">
-                            {mysqlDbs.length > 0 && (
-                                <div>
-                                    <div className="flex items-center gap-3 mb-4">
-                                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-md">
-                                            <Icon name="database" size={16} className="text-white" />
-                                        </div>
-                                        <h2 className="text-xl font-bold text-gray-900">MySQL</h2>
-                                        <span className="px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">{mysqlDbs.length}</span>
-                                    </div>
-                                    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
-                                        {mysqlDbs.map(db => (
-                                            <DatabaseCard 
-                                                key={db.id} 
-                                                database={db} 
-                                                onEdit={() => setEditTarget(db)}
-                                                onDelete={() => setDeleteTarget(db)}
-                                                showToast={showToast}
-                                                isAdmin={isAdmin}
-                                                projects={projects}
-                                                onRefresh={loadDatabases}
-                                                onNavigate={onNavigate}
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {mongoDbs.length > 0 && (
-                                <div>
-                                    <div className="flex items-center gap-3 mb-4">
-                                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-md">
-                                            <Icon name="leaf" size={16} className="text-white" />
-                                        </div>
-                                        <h2 className="text-xl font-bold text-gray-900">MongoDB</h2>
-                                        <span className="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold">{mongoDbs.length}</span>
-                                    </div>
-                                    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
-                                        {mongoDbs.map(db => (
-                                            <DatabaseCard 
-                                                key={db.id} 
-                                                database={db} 
-                                                onEdit={() => setEditTarget(db)}
-                                                onDelete={() => setDeleteTarget(db)}
-                                                showToast={showToast}
-                                                isAdmin={isAdmin}
-                                                projects={projects}
-                                                onRefresh={loadDatabases}
-                                                onNavigate={onNavigate}
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {postgresDbs.length > 0 && (
-                                <div>
-                                    <div className="flex items-center gap-3 mb-4">
-                                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center shadow-md">
-                                            <Icon name="database" size={16} className="text-white" />
-                                        </div>
-                                        <h2 className="text-xl font-bold text-gray-900">PostgreSQL</h2>
-                                        <span className="px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-bold">{postgresDbs.length}</span>
-                                    </div>
-                                    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
-                                        {postgresDbs.map(db => (
-                                            <DatabaseCard 
-                                                key={db.id} 
-                                                database={db} 
-                                                onEdit={() => setEditTarget(db)}
-                                                onDelete={() => setDeleteTarget(db)}
-                                                showToast={showToast}
-                                                isAdmin={isAdmin}
-                                                projects={projects}
-                                                onRefresh={loadDatabases}
-                                                onNavigate={onNavigate}
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
+                        <OrganizedBoard
+                            scope="databases"
+                            className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5"
+                            entries={filteredDatabases.map(db => ({
+                                id: db.id,
+                                node: (
+                                    <DatabaseCard
+                                        database={db}
+                                        onEdit={() => setEditTarget(db)}
+                                        onDelete={() => setDeleteTarget(db)}
+                                        showToast={showToast}
+                                        isAdmin={isAdmin}
+                                        projects={projects}
+                                        onRefresh={loadDatabases}
+                                        onNavigate={onNavigate}
+                                    />
+                                )
+                            }))}
+                        />
                     )}
 
                     {showCreateModal && (
@@ -5440,9 +5736,8 @@
                             </button>
                         </div>
                     ) : (
-                        <div className="grid gap-4">
-                            {models.map((model, i) => (
-                                <div key={i} className="bg-white border border-gray-200 rounded-xl p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow">
+                        <OrganizedBoard scope="ai-models" className="grid gap-4" entries={models.map(model => ({ id: model.name, node: (
+                                <div className="bg-white border border-gray-200 rounded-xl p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow">
                                     <div className="flex items-start justify-between gap-4">
                                         <div className="flex items-start gap-3 flex-1 min-w-0">
                                             <div className="w-10 h-10 bg-primary-50 rounded-lg flex items-center justify-center shrink-0">
@@ -5482,8 +5777,8 @@
                                         </div>
                                     </div>
                                 </div>
-                            ))}
-                        </div>
+                            )}))}
+                        </OrganizedBoard>
                     )}
 
                     {/* Install Modal */}
@@ -6123,9 +6418,8 @@
                             </button>
                         </div>
                     ) : (
-                        <div className="grid gap-4">
-                            {configs.map(config => (
-                                <div key={config.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
+                        <OrganizedBoard scope="nginx" className="grid gap-4" entries={configs.map(config => ({ id: config.id, node: (
+                                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
                                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-3 mb-2">
@@ -6192,8 +6486,8 @@
                                         </div>
                                     </div>
                                 </div>
-                            ))}
-                        </div>
+                            )}))}
+                        </OrganizedBoard>
                     )}
 
                     {/* Create Modal */}
@@ -7270,9 +7564,8 @@
                             </button>
                         </div>
                     ) : (
-                        <div className="grid gap-4">
-                            {certificates.map(cert => (
-                                <div key={cert.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
+                        <OrganizedBoard scope="ssl" className="grid gap-4" entries={certificates.map(cert => ({ id: cert.id, node: (
+                                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
                                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-3 mb-2">
@@ -7351,8 +7644,8 @@
                                         </div>
                                     </div>
                                 </div>
-                            ))}
-                        </div>
+                            )}))}
+                        </OrganizedBoard>
                     )}
 
                     {/* Create Modal */}
@@ -7955,10 +8248,8 @@
                             )}
                         </div>
                     ) : (
-                        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
-                            {apiKeys.map((key) => (
+                        <OrganizedBoard scope="api-keys" className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5" entries={apiKeys.map(key => ({ id: key.id, node: (
                                 <div 
-                                    key={key.id} 
                                     className="bg-gradient-to-br from-white to-gray-50 border-2 border-gray-200 rounded-2xl p-6 shadow-lg hover:shadow-2xl hover:scale-105 transition-all cursor-pointer group"
                                     onClick={() => handleShowDetail(key)}
                                 >
@@ -8035,8 +8326,8 @@
                                         </div>
                                     )}
                                 </div>
-                            ))}
-                        </div>
+                            )}))}
+                        </OrganizedBoard>
                     )}
 
                     {/* Create Modal */}
