@@ -58,6 +58,49 @@ function ensureProjectAccess(user, projectName) {
     }
 }
 
+function nginxOptionsFromBody(body = {}, existing = {}) {
+    const value = (key, fallback) => Object.prototype.hasOwnProperty.call(body, key) ? body[key] : fallback;
+    return {
+        secondaryDomains: value('secondaryDomains', existing.secondaryDomains || []),
+        listenHttp: value('listenHttp', existing.listenHttp),
+        listenHttps: value('listenHttps', existing.listenHttps),
+        hostingType: value('hostingType', existing.hostingType),
+        root: value('root', existing.root),
+        index: value('index', existing.index),
+        useSSL: value('useSSL', existing.useSSL || false),
+        sslCertPath: value('sslCertPath', existing.sslCertPath || ''),
+        sslKeyPath: value('sslKeyPath', existing.sslKeyPath || ''),
+        sslCertId: value('sslCertId', existing.sslCertId || ''),
+        redirectHTTP: value('redirectHTTP', existing.redirectHTTP || false),
+        sslProtocols: value('sslProtocols', existing.sslProtocols),
+        securityHeaders: value('securityHeaders', existing.securityHeaders),
+        siteStatus: value('siteStatus', existing.siteStatus),
+        bannerEnabled: value('bannerEnabled', existing.bannerEnabled),
+        bannerMessage: value('bannerMessage', existing.bannerMessage),
+        bannerColor: value('bannerColor', existing.bannerColor),
+        bannerStyle: value('bannerStyle', existing.bannerStyle),
+        maintenanceTitle: value('maintenanceTitle', existing.maintenanceTitle),
+        maintenanceMessage: value('maintenanceMessage', existing.maintenanceMessage),
+        targetHost: value('targetHost', existing.targetHost || 'localhost'),
+        targetProtocol: value('targetProtocol', existing.targetProtocol || 'http'),
+        proxyHeaders: value('proxyHeaders', existing.proxyHeaders),
+        websocket: value('websocket', existing.websocket),
+        proxyReadTimeout: value('proxyReadTimeout', existing.proxyReadTimeout),
+        proxyConnectTimeout: value('proxyConnectTimeout', existing.proxyConnectTimeout),
+        proxySendTimeout: value('proxySendTimeout', existing.proxySendTimeout),
+        clientMaxBodySize: value('clientMaxBodySize', existing.clientMaxBodySize),
+        gzip: value('gzip', existing.gzip),
+        expires: value('expires', existing.expires),
+        limitReqEnabled: value('limitReqEnabled', existing.limitReqEnabled),
+        limitReqRate: value('limitReqRate', existing.limitReqRate),
+        limitReqBurst: value('limitReqBurst', existing.limitReqBurst),
+        clientBodyTimeout: value('clientBodyTimeout', existing.clientBodyTimeout),
+        sendTimeout: value('sendTimeout', existing.sendTimeout),
+        linkedProject: body.linkedProject || existing.linkedProject || '',
+        linkedService: body.linkedService || existing.linkedService || ''
+    };
+}
+
 // ============================================
 // PROJETS
 // ============================================
@@ -2562,21 +2605,10 @@ router.get('/nginx/configs/:id/content', (req, res) => {
 router.post('/nginx/configs', async (req, res) => {
     try {
         const requestUser = getRequestUser(req);
-        const { 
-            domain, 
-            port, 
-            description,
-            useSSL,
-            sslCertPath,
-            sslKeyPath,
-            redirectHTTP,
-            targetHost,
-            targetProtocol,
-            linkedProject,
-            linkedService
-        } = req.body;
+        const { domain, port, description, linkedProject } = req.body;
+        const hostingType = req.body.hostingType === 'static' ? 'static' : 'proxy';
         
-        if (!domain || !port) {
+        if (!domain || (hostingType !== 'static' && (port === undefined || port === null || port === ''))) {
             return res.status(400).json({ success: false, error: 'Domaine et port requis' });
         }
         if (!linkedProject) {
@@ -2586,19 +2618,8 @@ router.post('/nginx/configs', async (req, res) => {
             ensureProjectAccess(requestUser, linkedProject);
         }
 
-        const options = {
-            useSSL: useSSL || false,
-            sslCertPath: sslCertPath || '',
-            sslKeyPath: sslKeyPath || '',
-            redirectHTTP: redirectHTTP || false,
-            targetHost: targetHost || 'localhost',
-            targetProtocol: targetProtocol || 'http',
-            linkedProject: linkedProject || '',
-            linkedService: linkedService || ''
-        };
-
-        const config = await nginx.createNginxConfig(domain, port, description, options);
-        res.json({ success: true, data: config });
+        const config = await nginx.createNginxConfig(domain, port, description, nginxOptionsFromBody(req.body));
+        res.json({ success: true, data: config, warnings: config.warnings || [] });
     } catch (error) {
         logger.error(`API: ${error.message}`);
         res.status(400).json({ success: false, error: error.message });
@@ -2700,6 +2721,55 @@ router.get('/nginx/status', async (req, res) => {
     }
 });
 
+router.post('/nginx/test', async (req, res) => {
+    try {
+        const result = await nginx.testNginxConfig();
+        if (!result.ok) {
+            return res.status(400).json({ success: false, error: result.output || 'nginx -t a échoué', data: result });
+        }
+        res.json({ success: true, data: result });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+router.get('/nginx/configs/:id/logs', (req, res) => {
+    try {
+        const requestUser = getRequestUser(req);
+        const config = nginx.getNginxConfig(req.params.id);
+        if (!config) {
+            return res.status(404).json({ success: false, error: 'Configuration non trouvée' });
+        }
+        if (requestUser && requestUser.role !== 'admin') {
+            ensureProjectAccess(requestUser, config.linkedProject);
+        }
+        const data = nginx.readSiteLog(req.params.id, req.query.type || 'access', req.query.lines || 200);
+        res.json({ success: true, data });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/nginx/configs/:id/restore', async (req, res) => {
+    try {
+        const requestUser = getRequestUser(req);
+        const existing = nginx.getNginxConfig(req.params.id);
+        if (!existing) {
+            return res.status(404).json({ success: false, error: 'Configuration non trouvée' });
+        }
+        if (requestUser && requestUser.role !== 'admin') {
+            ensureProjectAccess(requestUser, existing.linkedProject);
+        }
+        const config = await nginx.restoreNginxConfig(req.params.id);
+        res.json({ success: true, data: config });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
 /**
  * GET /api/nginx/global-config - Lire le fichier nginx.conf global
  */
@@ -2731,6 +2801,20 @@ router.put('/nginx/global-config', async (req, res) => {
     }
 });
 
+router.post('/nginx/global-config/restore', async (req, res) => {
+    try {
+        const requestUser = getRequestUser(req);
+        if (!requestUser || requestUser.role !== 'admin') {
+            return res.status(403).json({ success: false, error: 'Accès refusé' });
+        }
+        await nginx.restoreGlobalConfig();
+        res.json({ success: true, message: 'nginx.conf restauré' });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
 /**
  * PUT /api/nginx/configs/:id - Mettre à jour une configuration Nginx
  */
@@ -2744,19 +2828,11 @@ router.put('/nginx/configs/:id', async (req, res) => {
         if (requestUser && requestUser.role !== 'admin') {
             ensureProjectAccess(requestUser, existing.linkedProject);
         }
-        const {
-            domain,
-            port,
-            description,
-            useSSL,
-            sslCertPath,
-            sslKeyPath,
-            redirectHTTP,
-            targetHost,
-            targetProtocol,
-            linkedProject,
-            linkedService
-        } = req.body;
+        const { domain, port, description, linkedProject } = req.body;
+        const hostingType = req.body.hostingType || existing.hostingType || 'proxy';
+        if (!domain || (hostingType !== 'static' && (port === undefined || port === null || port === ''))) {
+            return res.status(400).json({ success: false, error: 'Domaine et port requis' });
+        }
         const targetLinkedProject = linkedProject || existing.linkedProject || '';
         if (!targetLinkedProject) {
             return res.status(400).json({ success: false, error: 'Projet lié requis' });
@@ -2765,19 +2841,14 @@ router.put('/nginx/configs/:id', async (req, res) => {
             ensureProjectAccess(requestUser, targetLinkedProject);
         }
 
-        const options = {
-            useSSL: useSSL || false,
-            sslCertPath: sslCertPath || '',
-            sslKeyPath: sslKeyPath || '',
-            redirectHTTP: redirectHTTP || false,
-            targetHost: targetHost || 'localhost',
-            targetProtocol: targetProtocol || 'http',
-            linkedProject: targetLinkedProject,
-            linkedService: linkedService || existing.linkedService || ''
-        };
-
-        const config = await nginx.updateNginxConfig(req.params.id, domain, port, description, options);
-        res.json({ success: true, data: config });
+        const config = await nginx.updateNginxConfig(
+            req.params.id,
+            domain,
+            port,
+            description,
+            nginxOptionsFromBody(req.body, existing)
+        );
+        res.json({ success: true, data: config, warnings: config.warnings || [] });
     } catch (error) {
         logger.error(`API: ${error.message}`);
         res.status(400).json({ success: false, error: error.message });
@@ -2967,6 +3038,9 @@ router.get('/ssl/certificates/:id/download', (req, res) => {
         if (requestUser && requestUser.role !== 'admin') {
             ensureProjectAccess(requestUser, certificate.linkedProject);
         }
+        if (type === 'key' && (!requestUser || requestUser.role !== 'admin')) {
+            return res.status(403).json({ success: false, error: 'Le téléchargement de la clé privée est réservé aux administrateurs' });
+        }
 
         const content = ssl.downloadCertificate(req.params.id, type);
         res.json({ success: true, data: content });
@@ -2991,7 +3065,8 @@ router.post('/ssl/certificates', (req, res) => {
             organizationalUnit,
             email,
             validityDays,
-            linkedProject
+            linkedProject,
+            altDomains
         } = req.body;
 
         if (!domain) {
@@ -3006,6 +3081,7 @@ router.post('/ssl/certificates', (req, res) => {
 
         const certificate = ssl.createCertificate({
             domain,
+            altDomains,
             country,
             state,
             city,
@@ -3026,6 +3102,82 @@ router.post('/ssl/certificates', (req, res) => {
 /**
  * DELETE /api/ssl/certificates/:id - Supprimer un certificat SSL
  */
+router.post('/ssl/certificates/:id/renew', async (req, res) => {
+    try {
+        const requestUser = getRequestUser(req);
+        const certificate = ssl.getCertificateById(req.params.id);
+        if (!certificate) {
+            return res.status(404).json({ success: false, error: 'Certificat non trouvé' });
+        }
+        if (requestUser && requestUser.role !== 'admin') {
+            ensureProjectAccess(requestUser, certificate.linkedProject);
+        }
+        const data = await ssl.renewCertificate(req.params.id, { force: req.body?.force === true });
+        res.json({ success: true, data });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/ssl/certificates/:id/check', async (req, res) => {
+    try {
+        const requestUser = getRequestUser(req);
+        const certificate = ssl.getCertificateById(req.params.id);
+        if (!certificate) {
+            return res.status(404).json({ success: false, error: 'Certificat non trouvé' });
+        }
+        if (requestUser && requestUser.role !== 'admin') {
+            ensureProjectAccess(requestUser, certificate.linkedProject);
+        }
+        const data = await ssl.checkRenewal(req.params.id);
+        res.json({ success: true, data });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+router.get('/ssl/certificates/:id/logs', (req, res) => {
+    try {
+        const requestUser = getRequestUser(req);
+        const certificate = ssl.getCertificateById(req.params.id);
+        if (!certificate) {
+            return res.status(404).json({ success: false, error: 'Certificat non trouvé' });
+        }
+        if (requestUser && requestUser.role !== 'admin') {
+            ensureProjectAccess(requestUser, certificate.linkedProject);
+        }
+        res.json({ success: true, data: ssl.readRenewalLog(req.params.id) });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+router.get('/ssl/renewal', (req, res) => {
+    try {
+        res.json({ success: true, data: ssl.getRenewalServiceStatus() });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+router.put('/ssl/renewal', (req, res) => {
+    try {
+        const requestUser = getRequestUser(req);
+        if (!requestUser || requestUser.role !== 'admin') {
+            return res.status(403).json({ success: false, error: 'Accès refusé' });
+        }
+        const data = ssl.setAutoRenew(req.body?.enabled === true);
+        res.json({ success: true, data });
+    } catch (error) {
+        logger.error(`API: ${error.message}`);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
 router.delete('/ssl/certificates/:id', (req, res) => {
     try {
         const requestUser = getRequestUser(req);

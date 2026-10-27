@@ -219,12 +219,13 @@
             const colors = {
                 success: 'bg-emerald-50 border-emerald-200 text-emerald-700',
                 error: 'bg-red-50 border-red-200 text-red-700',
+                warning: 'bg-amber-50 border-amber-200 text-amber-800',
                 info: 'bg-blue-50 border-blue-200 text-blue-700'
             };
 
             return (
                 <div className={`fixed top-4 right-4 left-4 sm:left-auto sm:right-4 z-50 px-4 py-3 rounded-lg border ${colors[type]} fade-in flex items-center gap-2 shadow-lg max-w-md mx-auto sm:mx-0`}>
-                    <Icon name={type === 'success' ? 'check-circle' : type === 'error' ? 'alert-circle' : 'info'} size={16} />
+                    <Icon name={type === 'success' ? 'check-circle' : type === 'error' ? 'alert-circle' : type === 'warning' ? 'alert-triangle' : 'info'} size={16} />
                     <span className="text-sm font-medium flex-1">{message}</span>
                     <button onClick={onClose} className="ml-2 opacity-60 hover:opacity-100 shrink-0">
                         <Icon name="x" size={14} />
@@ -5921,6 +5922,448 @@
         // ============================================
         // Nginx Page
         // ============================================
+        function emptyNginxForm() {
+            return {
+                domain: '',
+                secondaryDomains: '',
+                port: '',
+                description: '',
+                linkedProject: '',
+                listenHttp: 80,
+                listenHttps: 443,
+                hostingType: 'proxy',
+                root: '',
+                index: 'index.html',
+                useSSL: false,
+                sslCertPath: '',
+                sslKeyPath: '',
+                sslCertId: '',
+                redirectHTTP: true,
+                sslProtocols: ['TLSv1.2', 'TLSv1.3'],
+                securityHeaders: {
+                    xContentTypeOptions: true,
+                    xFrameOptions: 'SAMEORIGIN',
+                    referrerPolicy: 'strict-origin-when-cross-origin',
+                    hsts: true
+                },
+                siteStatus: 'normal',
+                bannerEnabled: false,
+                bannerMessage: '',
+                bannerColor: '#b45309',
+                bannerStyle: 'bar',
+                maintenanceTitle: 'Maintenance',
+                maintenanceMessage: 'Ce site est temporairement indisponible.',
+                targetHost: 'localhost',
+                targetProtocol: 'http',
+                proxyHeaders: { host: true, xRealIp: true, xForwardedFor: true, xForwardedProto: true, xForwardedHost: true },
+                websocket: true,
+                proxyReadTimeout: 60,
+                proxyConnectTimeout: 60,
+                proxySendTimeout: 60,
+                clientMaxBodySize: '25m',
+                gzip: true,
+                expires: '7d',
+                limitReqEnabled: false,
+                limitReqRate: '10r/s',
+                limitReqBurst: 20,
+                clientBodyTimeout: 60,
+                sendTimeout: 60
+            };
+        }
+
+        function nginxFormFromConfig(config) {
+            const created = emptyNginxForm();
+            return {
+                ...created,
+                domain: config.domain || '',
+                secondaryDomains: Array.isArray(config.secondaryDomains) ? config.secondaryDomains.join(', ') : '',
+                port: config.port || '',
+                description: config.description || '',
+                linkedProject: config.linkedProject || '',
+                listenHttp: config.listenHttp || 80,
+                listenHttps: config.listenHttps || 443,
+                hostingType: config.hostingType || 'proxy',
+                root: config.root || '',
+                index: config.index || 'index.html',
+                useSSL: !!config.useSSL,
+                sslCertPath: config.sslCertPath || '',
+                sslKeyPath: config.sslKeyPath || '',
+                sslCertId: config.sslCertId || '',
+                redirectHTTP: !!config.redirectHTTP,
+                sslProtocols: Array.isArray(config.sslProtocols) && config.sslProtocols.length ? config.sslProtocols : ['TLSv1.2', 'TLSv1.3'],
+                securityHeaders: config.securityHeaders || { xContentTypeOptions: false, xFrameOptions: '', referrerPolicy: '', hsts: false },
+                siteStatus: config.siteStatus || 'normal',
+                bannerEnabled: !!config.bannerEnabled,
+                bannerMessage: config.bannerMessage || '',
+                bannerColor: config.bannerColor || '#b45309',
+                bannerStyle: config.bannerStyle || 'bar',
+                maintenanceTitle: config.maintenanceTitle || 'Maintenance',
+                maintenanceMessage: config.maintenanceMessage || 'Ce site est temporairement indisponible.',
+                targetHost: config.targetHost || 'localhost',
+                targetProtocol: config.targetProtocol || 'http',
+                proxyHeaders: config.proxyHeaders || created.proxyHeaders,
+                websocket: config.websocket !== false,
+                proxyReadTimeout: config.proxyReadTimeout || 60,
+                proxyConnectTimeout: config.proxyConnectTimeout || 60,
+                proxySendTimeout: config.proxySendTimeout || 60,
+                clientMaxBodySize: config.clientMaxBodySize || '',
+                gzip: !!config.gzip,
+                expires: config.expires || 'off',
+                limitReqEnabled: !!config.limitReqEnabled,
+                limitReqRate: config.limitReqRate || '10r/s',
+                limitReqBurst: config.limitReqBurst ?? 20,
+                clientBodyTimeout: config.clientBodyTimeout || 60,
+                sendTimeout: config.sendTimeout || 60
+            };
+        }
+
+        function nginxPayload(form) {
+            return {
+                ...form,
+                secondaryDomains: String(form.secondaryDomains || '').split(/[,\s]+/).map(item => item.trim()).filter(Boolean)
+            };
+        }
+
+        function NginxConfigFields({ form, setForm, availableProjects, sslCertificates, capabilities, onSelectCertificate }) {
+            const [showAdvanced, setShowAdvanced] = useState(false);
+            useEffect(() => {
+                if (!form.useSSL || form.sslCertId || !form.sslCertPath) return;
+                const match = sslCertificates.find(cert => cert.certPath === form.sslCertPath);
+                if (match && (match.status === 'valid' || match.status === 'expiring')) {
+                    setForm({ ...form, sslCertId: match.id, sslCertPath: match.certPath, sslKeyPath: match.keyPath });
+                }
+            }, [sslCertificates]);
+            const inputClass = 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm';
+            const modules = capabilities?.modules || {};
+            const nginxKnown = !!capabilities?.available;
+            const patch = (values) => setForm({ ...form, ...values });
+            const usableCertificates = sslCertificates.filter(cert => cert.status === 'valid' || cert.status === 'expiring');
+            const blockedCertificates = sslCertificates.filter(cert => cert.status !== 'valid' && cert.status !== 'expiring');
+
+            function toggleProtocol(protocol) {
+                const current = form.sslProtocols || [];
+                patch({ sslProtocols: current.includes(protocol) ? current.filter(item => item !== protocol) : [...current, protocol] });
+            }
+
+            return (
+                <div className="space-y-6">
+                    <div className="space-y-4">
+                        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                            <Icon name="settings" size={16} />
+                            Général et domaines
+                        </h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Domaine principal *</label>
+                                <input type="text" value={form.domain} onChange={(e) => patch({ domain: e.target.value })} placeholder="exemple.fr" className={inputClass} required />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Domaines secondaires</label>
+                                <input type="text" value={form.secondaryDomains} onChange={(e) => patch({ secondaryDomains: e.target.value })} placeholder="www.exemple.fr, app.exemple.fr" className={inputClass} />
+                                <p className="text-xs text-gray-500 mt-1">Ajoutés à server_name, séparés par des virgules.</p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Port HTTP *</label>
+                                <input type="number" min="1" max="65535" value={form.listenHttp} onChange={(e) => patch({ listenHttp: e.target.value })} className={inputClass} required />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Port HTTPS *</label>
+                                <input type="number" min="1" max="65535" value={form.listenHttps} onChange={(e) => patch({ listenHttps: e.target.value })} className={inputClass} required />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Répertoire racine {form.hostingType === 'static' ? '*' : ''}</label>
+                                <input type="text" value={form.root} onChange={(e) => patch({ root: e.target.value })} placeholder="/var/www/exemple" className={inputClass} required={form.hostingType === 'static'} />
+                                <p className="text-xs text-gray-500 mt-1">Directive root. Obligatoire pour un site statique.</p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Fichier d'accueil</label>
+                                <input type="text" value={form.index} onChange={(e) => patch({ index: e.target.value })} placeholder="index.html" className={inputClass} />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                            <input type="text" value={form.description} onChange={(e) => patch({ description: e.target.value })} placeholder="Site public" className={inputClass} />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Projet lié *</label>
+                            <select value={form.linkedProject} onChange={(e) => patch({ linkedProject: e.target.value })} className={inputClass} required>
+                                <option value="">-- Sélectionner un projet --</option>
+                                {availableProjects.map(project => (
+                                    <option key={project.name} value={project.name}>{project.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4 pt-4 border-t border-gray-200">
+                        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                            <Icon name="shield" size={16} />
+                            Sécurité et HTTPS
+                        </h3>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" checked={!!form.useSSL} disabled={nginxKnown && !modules.ssl} onChange={(e) => patch({ useSSL: e.target.checked, redirectHTTP: e.target.checked ? form.redirectHTTP : false })} className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500" />
+                            <span className="text-sm text-gray-700">Activer HTTPS</span>
+                        </label>
+                        {nginxKnown && !modules.ssl && <p className="text-xs text-amber-700">Le module SSL de Nginx est absent.</p>}
+                        {form.useSSL && (
+                            <div className="space-y-4 pl-4 border-l-2 border-primary-200">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" checked={!!form.redirectHTTP} onChange={(e) => patch({ redirectHTTP: e.target.checked })} className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500" />
+                                    <span className="text-sm text-gray-700">Rediriger automatiquement HTTP vers HTTPS</span>
+                                </label>
+                                <div>
+                                    <p className="text-sm font-medium text-gray-700 mb-2">Versions TLS</p>
+                                    <div className="flex gap-4">
+                                        {['TLSv1.2', 'TLSv1.3'].map(protocol => (
+                                            <label key={protocol} className="flex items-center gap-2 text-sm text-gray-700">
+                                                <input type="checkbox" checked={(form.sslProtocols || []).includes(protocol)} onChange={() => toggleProtocol(protocol)} className="w-4 h-4 text-primary-600 border-gray-300 rounded" />
+                                                {protocol}
+                                            </label>
+                                        ))}
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-1">TLS 1.0 et 1.1 ne sont pas proposés.</p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Certificat valide *</label>
+                                    <select value={form.sslCertId} onChange={(e) => onSelectCertificate(e.target.value)} className={inputClass} required>
+                                        <option value="">-- Certificat de la page SSL --</option>
+                                        {usableCertificates.map(cert => (
+                                            <option key={cert.id} value={cert.id}>
+                                                {cert.domain} — {cert.status === 'expiring' ? 'bientôt expiré' : 'valide'}
+                                            </option>
+                                        ))}
+                                        {blockedCertificates.map(cert => (
+                                            <option key={cert.id} value={cert.id} disabled>
+                                                {cert.domain} — {cert.status === 'expired' ? 'expiré' : 'erreur'}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <p className="text-xs text-gray-500 mt-1">L'obtention et le renouvellement se font dans la page SSL. Nginx n'utilise qu'un certificat valide.</p>
+                                    {form.sslCertPath && <p className="mt-2 text-xs font-mono text-gray-600 truncate">{form.sslCertPath}</p>}
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                                        <input type="checkbox" checked={!!form.securityHeaders?.xContentTypeOptions} onChange={(e) => patch({ securityHeaders: { ...form.securityHeaders, xContentTypeOptions: e.target.checked } })} className="w-4 h-4 text-primary-600 border-gray-300 rounded" />
+                                        X-Content-Type-Options
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                                        <input type="checkbox" checked={!!form.securityHeaders?.hsts} onChange={(e) => patch({ securityHeaders: { ...form.securityHeaders, hsts: e.target.checked } })} className="w-4 h-4 text-primary-600 border-gray-300 rounded" />
+                                        HSTS
+                                    </label>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">X-Frame-Options</label>
+                                        <select value={form.securityHeaders?.xFrameOptions || ''} onChange={(e) => patch({ securityHeaders: { ...form.securityHeaders, xFrameOptions: e.target.value } })} className={inputClass}>
+                                            <option value="">Désactivé</option>
+                                            <option value="SAMEORIGIN">SAMEORIGIN</option>
+                                            <option value="DENY">DENY</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Referrer-Policy</label>
+                                        <select value={form.securityHeaders?.referrerPolicy || ''} onChange={(e) => patch({ securityHeaders: { ...form.securityHeaders, referrerPolicy: e.target.value } })} className={inputClass}>
+                                            <option value="">Désactivé</option>
+                                            <option value="strict-origin-when-cross-origin">strict-origin-when-cross-origin</option>
+                                            <option value="same-origin">same-origin</option>
+                                            <option value="no-referrer">no-referrer</option>
+                                            <option value="origin-when-cross-origin">origin-when-cross-origin</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="space-y-4 pt-4 border-t border-gray-200">
+                        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                            <Icon name="alert-triangle" size={16} />
+                            État du site et bannière
+                        </h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Statut</label>
+                                <select value={form.siteStatus} onChange={(e) => {
+                                    const siteStatus = e.target.value;
+                                    const presets = { showcase: 'Site vitrine', development: 'Site en cours de développement', maintenance: 'Site en maintenance' };
+                                    patch({ siteStatus, bannerMessage: form.bannerMessage || presets[siteStatus] || '' });
+                                }} className={inputClass}>
+                                    <option value="normal">Normal</option>
+                                    <option value="showcase">Site vitrine</option>
+                                    <option value="development">En développement</option>
+                                    <option value="maintenance">En maintenance</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Style de bannière</label>
+                                <select value={form.bannerStyle} onChange={(e) => patch({ bannerStyle: e.target.value })} className={inputClass}>
+                                    <option value="bar">Bandeau</option>
+                                    <option value="solid">Plein</option>
+                                    <option value="outline">Contour</option>
+                                </select>
+                            </div>
+                        </div>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" checked={!!form.bannerEnabled} disabled={nginxKnown && !modules.sub && form.siteStatus !== 'maintenance'} onChange={(e) => patch({ bannerEnabled: e.target.checked })} className="w-4 h-4 text-primary-600 border-gray-300 rounded" />
+                            <span className="text-sm text-gray-700">Afficher une bannière au-dessus du site</span>
+                        </label>
+                        {nginxKnown && !modules.sub && form.siteStatus !== 'maintenance' && (
+                            <p className="text-xs text-amber-700">Le module sub_filter est absent. La bannière ne peut pas être ajoutée sans modifier le code du site.</p>
+                        )}
+                        {form.bannerEnabled && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="sm:col-span-2">
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Message</label>
+                                    <input type="text" value={form.bannerMessage} onChange={(e) => patch({ bannerMessage: e.target.value })} className={inputClass} maxLength={180} />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Couleur</label>
+                                    <input type="color" value={form.bannerColor || '#b45309'} onChange={(e) => patch({ bannerColor: e.target.value })} className="h-10 w-full border border-gray-300 rounded-lg" />
+                                </div>
+                            </div>
+                        )}
+                        {form.siteStatus === 'maintenance' && (
+                            <div className="space-y-3">
+                                <p className="text-xs text-gray-500">Le site répond alors avec la page ci-dessous et le code 503. Revenir au statut normal rétablit le fonctionnement précédent.</p>
+                                <input type="text" value={form.maintenanceTitle} onChange={(e) => patch({ maintenanceTitle: e.target.value })} placeholder="Titre" className={inputClass} />
+                                <textarea value={form.maintenanceMessage} onChange={(e) => patch({ maintenanceMessage: e.target.value })} rows={3} className={inputClass} />
+                            </div>
+                        )}
+                        {capabilities?.limitations?.length > 0 && form.bannerEnabled && (
+                            <div className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3 space-y-1">
+                                {capabilities.limitations.slice(0, 2).map(item => <p key={item}>{item}</p>)}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="space-y-4 pt-4 border-t border-gray-200">
+                        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                            <Icon name="target" size={16} />
+                            Application et proxy inverse
+                        </h3>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Type d'hébergement</label>
+                            <select value={form.hostingType} onChange={(e) => patch({ hostingType: e.target.value })} className={inputClass}>
+                                <option value="static">Site statique</option>
+                                <option value="proxy">Application backend</option>
+                            </select>
+                        </div>
+                        {form.hostingType === 'proxy' && (
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Hôte</label>
+                                        <input type="text" value={form.targetHost} onChange={(e) => patch({ targetHost: e.target.value })} placeholder="localhost" className={inputClass} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Port *</label>
+                                        <input type="number" min="1" max="65535" value={form.port} onChange={(e) => patch({ port: e.target.value })} className={inputClass} required />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Protocole</label>
+                                        <select value={form.targetProtocol} onChange={(e) => patch({ targetProtocol: e.target.value })} className={inputClass}>
+                                            <option value="http">HTTP</option>
+                                            <option value="https">HTTPS</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    {[
+                                        ['host', 'Host'],
+                                        ['xRealIp', 'X-Real-IP'],
+                                        ['xForwardedFor', 'X-Forwarded-For'],
+                                        ['xForwardedProto', 'X-Forwarded-Proto'],
+                                        ['xForwardedHost', 'X-Forwarded-Host']
+                                    ].map(([key, label]) => (
+                                        <label key={key} className="flex items-center gap-2 text-sm text-gray-700">
+                                            <input type="checkbox" checked={form.proxyHeaders?.[key] !== false} onChange={(e) => patch({ proxyHeaders: { ...form.proxyHeaders, [key]: e.target.checked } })} className="w-4 h-4 text-primary-600 border-gray-300 rounded" />
+                                            {label}
+                                        </label>
+                                    ))}
+                                </div>
+                                <label className="flex items-center gap-2 text-sm text-gray-700">
+                                    <input type="checkbox" checked={form.websocket !== false} onChange={(e) => patch({ websocket: e.target.checked })} className="w-4 h-4 text-primary-600 border-gray-300 rounded" />
+                                    Support WebSocket
+                                </label>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Délai de lecture du backend (secondes)</label>
+                                    <input type="number" min="1" max="3600" value={form.proxyReadTimeout} onChange={(e) => patch({ proxyReadTimeout: e.target.value })} className={inputClass} />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="pt-4 border-t border-gray-200">
+                        <button type="button" onClick={() => setShowAdvanced(!showAdvanced)} className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                            <Icon name={showAdvanced ? 'chevron-down' : 'chevron-right'} size={16} />
+                            Performances et limites
+                        </button>
+                        {showAdvanced && (
+                            <div className="space-y-4 mt-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Taille max. des fichiers</label>
+                                        <select value={form.clientMaxBodySize || ''} onChange={(e) => patch({ clientMaxBodySize: e.target.value })} className={inputClass}>
+                                            <option value="">Défaut Nginx (1 Mo)</option>
+                                            <option value="10m">10 Mo</option>
+                                            <option value="25m">25 Mo</option>
+                                            <option value="50m">50 Mo</option>
+                                            <option value="100m">100 Mo</option>
+                                            <option value="200m">200 Mo</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Cache navigateur</label>
+                                        <select value={form.expires || 'off'} onChange={(e) => patch({ expires: e.target.value })} className={inputClass}>
+                                            <option value="off">Désactivé</option>
+                                            <option value="1h">1 heure</option>
+                                            <option value="1d">1 jour</option>
+                                            <option value="7d">7 jours</option>
+                                            <option value="30d">30 jours</option>
+                                        </select>
+                                        <p className="text-xs text-gray-500 mt-1">S'applique aux fichiers statiques courants (CSS, JS, images).</p>
+                                    </div>
+                                </div>
+                                <label className="flex items-center gap-2 text-sm text-gray-700">
+                                    <input type="checkbox" checked={!!form.gzip} disabled={nginxKnown && !modules.gzip} onChange={(e) => patch({ gzip: e.target.checked })} className="w-4 h-4 text-primary-600 border-gray-300 rounded" />
+                                    Compression Gzip
+                                </label>
+                                <label className="flex items-center gap-2 text-sm text-gray-700">
+                                    <input type="checkbox" checked={!!form.limitReqEnabled} disabled={nginxKnown && (!modules.limitReq || !capabilities.confDIncluded)} onChange={(e) => patch({ limitReqEnabled: e.target.checked })} className="w-4 h-4 text-primary-600 border-gray-300 rounded" />
+                                    Limiter le débit des requêtes
+                                </label>
+                                {nginxKnown && form.limitReqEnabled && (!modules.limitReq || !capabilities.confDIncluded) && (
+                                    <p className="text-xs text-amber-700">limit_req ou l'inclusion de conf.d dans nginx.conf est indisponible.</p>
+                                )}
+                                {form.limitReqEnabled && (
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <select value={form.limitReqRate} onChange={(e) => patch({ limitReqRate: e.target.value })} className={inputClass}>
+                                            <option value="5r/s">5 requêtes / seconde</option>
+                                            <option value="10r/s">10 requêtes / seconde</option>
+                                            <option value="20r/s">20 requêtes / seconde</option>
+                                            <option value="30r/m">30 requêtes / minute</option>
+                                        </select>
+                                        <input type="number" min="0" max="1000" value={form.limitReqBurst} onChange={(e) => patch({ limitReqBurst: e.target.value })} className={inputClass} />
+                                    </div>
+                                )}
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                    {[
+                                        ['clientBodyTimeout', 'Corps'],
+                                        ['sendTimeout', 'Envoi'],
+                                        ['proxyConnectTimeout', 'Connexion'],
+                                        ['proxySendTimeout', 'Envoi proxy']
+                                    ].map(([key, label]) => (
+                                        <div key={key}>
+                                            <label className="block text-xs font-medium text-gray-600 mb-1">{label} (s)</label>
+                                            <input type="number" min="1" max="3600" value={form[key]} onChange={(e) => patch({ [key]: e.target.value })} className={inputClass} />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
         function NginxPage({ showToast, currentUser, availableProjects = [] }) {
             const isAdmin = currentUser?.role === 'admin';
             const [configs, setConfigs] = useState([]);
@@ -5937,39 +6380,11 @@
             const [errorPages, setErrorPages] = useState([]);
             const [selectedErrorPage, setSelectedErrorPage] = useState(null);
             const [errorPageContent, setErrorPageContent] = useState('');
-            const [form, setForm] = useState({
-                domain: '',
-                port: '',
-                description: '',
-                linkedProject: '',
-                useSSL: false,
-                sslCertPath: '',
-                sslKeyPath: '',
-                sslCertId: '',
-                sslMode: 'select',
-                sslTemplateId: '',
-                redirectHTTP: false,
-                targetHost: 'localhost',
-                targetProtocol: 'http'
-            });
-            const [editForm, setEditForm] = useState({
-                domain: '',
-                port: '',
-                description: '',
-                linkedProject: '',
-                useSSL: false,
-                sslCertPath: '',
-                sslKeyPath: '',
-                sslCertId: '',
-                sslMode: 'select',
-                sslTemplateId: '',
-                redirectHTTP: false,
-                targetHost: 'localhost',
-                targetProtocol: 'http'
-            });
+            const [form, setForm] = useState(emptyNginxForm);
+            const [editForm, setEditForm] = useState(emptyNginxForm);
+            const [nginxStatus, setNginxStatus] = useState(null);
+            const [logView, setLogView] = useState(null);
             const [sslCertificates, setSslCertificates] = useState([]);
-            const [sslTemplates, setSslTemplates] = useState([]);
-            const [generatingCert, setGeneratingCert] = useState(false);
             const showToastRef = useRef(showToast);
             showToastRef.current = showToast;
             const configsLoadedRef = useRef(false);
@@ -5996,7 +6411,16 @@
                 setLoading(false);
             }, []);
 
-            useEffect(() => { loadConfigs(); }, [loadConfigs]);
+            useEffect(() => { loadConfigs(); loadNginxStatus(); }, [loadConfigs]);
+
+            async function loadNginxStatus() {
+                try {
+                    const result = await api.get('/api/nginx/status');
+                    if (result.success) setNginxStatus(result.data);
+                } catch {
+                    setNginxStatus(null);
+                }
+            }
             useEffect(() => {
                 if (!form.linkedProject && availableProjects.length === 1) {
                     setForm(prev => ({ ...prev, linkedProject: availableProjects[0].name }));
@@ -6011,62 +6435,10 @@
 
             async function loadSslData() {
                 try {
-                    const [certsResult, templatesResult] = await Promise.all([
-                        api.get('/api/ssl/certificates'),
-                        api.get('/api/ssl/templates')
-                    ]);
+                    const certsResult = await api.get('/api/ssl/certificates');
                     if (certsResult.success) setSslCertificates(certsResult.data);
-                    if (templatesResult.success) setSslTemplates(templatesResult.data);
                 } catch (error) {
                     console.error('Erreur chargement SSL:', error);
-                }
-            }
-
-            async function handleGenerateCertificate(isEdit = false) {
-                const currentForm = isEdit ? editForm : form;
-                const setCurrentForm = isEdit ? setEditForm : setForm;
-
-                if (!currentForm.domain) {
-                    showToast('Veuillez d\'abord renseigner le domaine', 'warning');
-                    return;
-                }
-                if (!currentForm.sslTemplateId) {
-                    showToast('Veuillez sélectionner un template', 'warning');
-                    return;
-                }
-
-                setGeneratingCert(true);
-                try {
-                    const template = sslTemplates.find(t => t.id === currentForm.sslTemplateId);
-                    const result = await api.post('/api/ssl/certificates', {
-                        domain: currentForm.domain,
-                        country: template.country,
-                        state: template.state,
-                        city: template.city,
-                        organization: template.organization,
-                        organizationalUnit: template.organizationalUnit,
-                        email: template.email,
-                        validityDays: template.validityDays,
-                        linkedProject: currentForm.linkedProject
-                    });
-                    
-                    if (result.success) {
-                        showToast('Certificat généré avec succès', 'success');
-                        await loadSslData();
-                        setCurrentForm({
-                            ...currentForm,
-                            sslCertId: result.data.id,
-                            sslCertPath: result.data.certPath,
-                            sslKeyPath: result.data.keyPath,
-                            sslMode: 'select'
-                        });
-                    } else {
-                        showToast(result.error, 'error');
-                    }
-                } catch (error) {
-                    showToast(error.message, 'error');
-                } finally {
-                    setGeneratingCert(false);
                 }
             }
 
@@ -6075,14 +6447,17 @@
                 const currentForm = isEdit ? editForm : form;
                 const setCurrentForm = isEdit ? setEditForm : setForm;
 
-                if (cert) {
-                    setCurrentForm({
-                        ...currentForm,
-                        sslCertId: certId,
-                        sslCertPath: cert.certPath,
-                        sslKeyPath: cert.keyPath
-                    });
+                if (!cert) return;
+                if (cert.status === 'expired' || cert.status === 'error') {
+                    showToast(cert.statusError || 'Ce certificat n\'est pas utilisable', 'error');
+                    return;
                 }
+                setCurrentForm({
+                    ...currentForm,
+                    sslCertId: certId,
+                    sslCertPath: cert.certPath,
+                    sslKeyPath: cert.keyPath
+                });
             }
 
             async function handleCreate(e) {
@@ -6092,23 +6467,14 @@
                     return;
                 }
                 try {
-                    const result = await api.post('/api/nginx/configs', form);
+                    const result = await api.post('/api/nginx/configs', nginxPayload(form));
                     if (result.success) {
                         showToast('Configuration Nginx créée avec succès', 'success');
+                        if (result.warnings?.length) showToast(result.warnings.join(' '), 'warning');
                         setShowCreateModal(false);
-                        setForm({ 
-                            domain: '', 
-                            port: '', 
-                            description: '',
-                            linkedProject: '',
-                            useSSL: false,
-                            sslCertPath: '',
-                            sslKeyPath: '',
-                            redirectHTTP: false,
-                            targetHost: 'localhost',
-                            targetProtocol: 'http'
-                        });
+                        setForm(emptyNginxForm());
                         loadConfigs(true);
+                        loadNginxStatus();
                     } else {
                         showToast(result.error, 'error');
                     }
@@ -6151,19 +6517,47 @@
 
             async function handleEditConfig(config) {
                 setSelectedConfig(config);
-                setEditForm({
-                    domain: config.domain || '',
-                    port: config.port || '',
-                    description: config.description || '',
-                    linkedProject: config.linkedProject || '',
-                    useSSL: config.useSSL || false,
-                    sslCertPath: config.sslCertPath || '',
-                    sslKeyPath: config.sslKeyPath || '',
-                    redirectHTTP: config.redirectHTTP || false,
-                    targetHost: config.targetHost || 'localhost',
-                    targetProtocol: config.targetProtocol || 'http'
-                });
+                setEditForm(nginxFormFromConfig(config));
                 setShowEditConfigModal(true);
+            }
+
+            async function handleTestConfig() {
+                try {
+                    const result = await api.post('/api/nginx/test', {});
+                    if (result.success) showToast('Configuration Nginx valide', 'success');
+                    else showToast(result.error || 'Configuration invalide', 'error');
+                    loadNginxStatus();
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
+            }
+
+            async function handleShowLogs(config, type) {
+                try {
+                    const result = await api.get(`/api/nginx/configs/${config.id}/logs?type=${type}`);
+                    if (result.success) {
+                        setLogView({ domain: config.domain, type, ...result.data });
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
+            }
+
+            async function handleRestore(config) {
+                if (!confirm(`Restaurer la configuration précédente de "${config.domain}" ?`)) return;
+                try {
+                    const result = await api.post(`/api/nginx/configs/${config.id}/restore`, {});
+                    if (result.success) {
+                        showToast('Configuration précédente restaurée', 'success');
+                        loadConfigs(true);
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
             }
 
             async function handleSaveEditConfig(e) {
@@ -6173,9 +6567,10 @@
                     return;
                 }
                 try {
-                    const result = await api.put(`/api/nginx/configs/${selectedConfig.id}`, editForm);
+                    const result = await api.put(`/api/nginx/configs/${selectedConfig.id}`, nginxPayload(editForm));
                     if (result.success) {
                         showToast('Configuration mise à jour avec succès', 'success');
+                        if (result.warnings?.length) showToast(result.warnings.join(' '), 'warning');
                         setShowEditConfigModal(false);
                         setSelectedConfig(null);
                         loadConfigs(true);
@@ -6362,7 +6757,15 @@
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                         <div>
                             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Nginx</h1>
-                            <p className="text-sm sm:text-base text-gray-600 mt-1">Gestion des reverse proxy</p>
+                            <p className="text-sm sm:text-base text-gray-600 mt-1">Sites, reverse proxy et HTTPS</p>
+                            {nginxStatus && (
+                                <p className="text-xs mt-2">
+                                    <span className={`px-2 py-1 rounded-full font-medium ${nginxStatus.active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                        {nginxStatus.active ? 'Nginx en service' : 'Nginx arrêté'}
+                                    </span>
+                                    {nginxStatus.version && <span className="ml-2 text-gray-500">version {nginxStatus.version}</span>}
+                                </p>
+                            )}
                         </div>
                         <div className="flex gap-2 flex-wrap">
                             <button
@@ -6380,6 +6783,14 @@
                             >
                                 <Icon name="settings" size={16} />
                                 <span className="hidden sm:inline">Config globale</span>
+                            </button>
+                            <button
+                                onClick={handleTestConfig}
+                                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2"
+                                title="Tester la configuration (nginx -t)"
+                            >
+                                <Icon name="check-circle" size={16} />
+                                <span className="hidden sm:inline">Tester</span>
                             </button>
                             <button
                                 onClick={handleReload}
@@ -6420,7 +6831,7 @@
                                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
                                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                                         <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-3 mb-2">
+                                            <div className="flex items-center gap-2 mb-2 flex-wrap">
                                                 <h3 className="text-lg font-semibold text-gray-900 truncate">{config.domain}</h3>
                                                 <span className={`px-2 py-1 text-xs font-medium rounded-full ${
                                                     config.enabled 
@@ -6429,11 +6840,22 @@
                                                 }`}>
                                                     {config.enabled ? 'Activé' : 'Désactivé'}
                                                 </span>
+                                                <span className="px-2 py-1 text-xs font-medium rounded-full bg-sky-100 text-sky-800">
+                                                    {config.hostingType === 'static' ? 'Statique' : 'Application'}
+                                                </span>
+                                                {config.siteStatus && config.siteStatus !== 'normal' && (
+                                                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-amber-100 text-amber-800">
+                                                        {config.siteStatus === 'maintenance' ? 'Maintenance' : config.siteStatus === 'showcase' ? 'Vitrine' : 'Développement'}
+                                                    </span>
+                                                )}
+                                                {config.useSSL && (
+                                                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-emerald-100 text-emerald-800">HTTPS</span>
+                                                )}
                                             </div>
                                             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm text-gray-600">
                                                 <div className="flex items-center gap-2">
                                                     <Icon name="arrow-right" size={14} />
-                                                    <span>localhost:{config.port}</span>
+                                                    <span>{config.hostingType === 'static' ? (config.root || 'Site statique') : `${config.targetHost || 'localhost'}:${config.port}`}</span>
                                                 </div>
                                                 {config.linkedProject && (
                                                     <div className="flex items-center gap-2">
@@ -6475,6 +6897,28 @@
                                                 <Icon name="file-text" size={18} />
                                             </button>
                                             <button
+                                                onClick={() => handleShowLogs(config, 'access')}
+                                                className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                                                title="Journal d'accès"
+                                            >
+                                                <Icon name="scroll-text" size={18} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleShowLogs(config, 'error')}
+                                                className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                                                title="Journal d'erreurs"
+                                            >
+                                                <Icon name="alert-circle" size={18} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleRestore(config)}
+                                                disabled={!config.hasBackup}
+                                                className={`p-2 rounded-lg transition-colors ${config.hasBackup ? 'text-amber-700 hover:bg-amber-50' : 'text-gray-300 cursor-not-allowed'}`}
+                                                title={config.hasBackup ? 'Restaurer la configuration précédente' : 'Aucune sauvegarde'}
+                                            >
+                                                <Icon name="history" size={18} />
+                                            </button>
+                                            <button
                                                 onClick={() => handleDelete(config)}
                                                 className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                                                 title="Supprimer"
@@ -6497,243 +6941,15 @@
                                     <p className="text-sm text-gray-600 mt-1">Configurez votre reverse proxy avec support SSL</p>
                                 </div>
                                 <form onSubmit={handleCreate} className="p-6 space-y-6">
-                                    {/* Configuration de base */}
-                                    <div className="space-y-4">
-                                        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                                            <Icon name="settings" size={16} />
-                                            Configuration de base
-                                        </h3>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                    Domaine *
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    value={form.domain}
-                                                    onChange={(e) => setForm({...form, domain: e.target.value})}
-                                                    placeholder="example.com"
-                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                                                    required
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                    Port cible *
-                                                </label>
-                                                <input
-                                                    type="number"
-                                                    value={form.port}
-                                                    onChange={(e) => setForm({...form, port: e.target.value})}
-                                                    placeholder="3000"
-                                                    min="1"
-                                                    max="65535"
-                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                                                    required
-                                                />
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Description
-                                            </label>
-                                            <input
-                                                type="text"
-                                                value={form.description}
-                                                onChange={(e) => setForm({...form, description: e.target.value})}
-                                                placeholder="Mon application"
-                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Projet lié *
-                                            </label>
-                                            <select
-                                                value={form.linkedProject}
-                                                onChange={(e) => setForm({...form, linkedProject: e.target.value})}
-                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                                                required
-                                            >
-                                                <option value="">-- Sélectionner un projet --</option>
-                                                {availableProjects.map(project => (
-                                                    <option key={project.name} value={project.name}>{project.name}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                    </div>
-
-                                    {/* Configuration cible */}
-                                    <div className="space-y-4 pt-4 border-t border-gray-200">
-                                        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                                            <Icon name="target" size={16} />
-                                            Serveur cible
-                                        </h3>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                    Hôte cible
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    value={form.targetHost}
-                                                    onChange={(e) => setForm({...form, targetHost: e.target.value})}
-                                                    placeholder="localhost ou 192.168.1.50"
-                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                                                />
-                                                <p className="text-xs text-gray-500 mt-1">Par défaut: localhost</p>
-                                            </div>
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                    Protocole cible
-                                                </label>
-                                                <select
-                                                    value={form.targetProtocol}
-                                                    onChange={(e) => setForm({...form, targetProtocol: e.target.value})}
-                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                                                >
-                                                    <option value="http">HTTP</option>
-                                                    <option value="https">HTTPS</option>
-                                                </select>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Configuration SSL */}
-                                    <div className="space-y-4 pt-4 border-t border-gray-200">
-                                        <div className="flex items-center justify-between">
-                                            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                                                <Icon name="shield" size={16} />
-                                                SSL/HTTPS
-                                            </h3>
-                                            <label className="flex items-center gap-2 cursor-pointer">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={form.useSSL}
-                                                    onChange={(e) => setForm({...form, useSSL: e.target.checked})}
-                                                    className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-                                                />
-                                                <span className="text-sm text-gray-700">Activer SSL</span>
-                                            </label>
-                                        </div>
-                                        
-                                        {form.useSSL && (
-                                            <div className="space-y-4 pl-6 border-l-2 border-primary-200">
-                                                <div className="flex gap-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setForm({...form, sslMode: 'select'})}
-                                                        className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
-                                                            form.sslMode === 'select'
-                                                                ? 'bg-primary-600 text-white'
-                                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                                        }`}
-                                                    >
-                                                        Sélectionner un certificat
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setForm({...form, sslMode: 'generate'})}
-                                                        className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
-                                                            form.sslMode === 'generate'
-                                                                ? 'bg-primary-600 text-white'
-                                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                                        }`}
-                                                    >
-                                                        Générer automatiquement
-                                                    </button>
-                                                </div>
-
-                                                {form.sslMode === 'select' && (
-                                                    <div>
-                                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                            Certificat SSL *
-                                                        </label>
-                                                        <select
-                                                            value={form.sslCertId}
-                                                            onChange={(e) => handleSslCertificateSelect(e.target.value, false)}
-                                                            className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm"
-                                                            required={form.useSSL && form.sslMode === 'select'}
-                                                        >
-                                                            <option value="">-- Sélectionner un certificat --</option>
-                                                            {sslCertificates.map(cert => (
-                                                                <option key={cert.id} value={cert.id}>
-                                                                    {cert.domain} ({cert.organization || 'Sans organisation'})
-                                                                </option>
-                                                            ))}
-                                                        </select>
-                                                        {form.sslCertId && (
-                                                            <div className="mt-2 p-2 bg-gray-50 rounded text-xs text-gray-600">
-                                                                <div className="font-mono truncate">Cert: {form.sslCertPath}</div>
-                                                                <div className="font-mono truncate">Key: {form.sslKeyPath}</div>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-
-                                                {form.sslMode === 'generate' && (
-                                                    <div className="space-y-3">
-                                                        <div>
-                                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                                Template *
-                                                            </label>
-                                                            <select
-                                                                value={form.sslTemplateId}
-                                                                onChange={(e) => setForm({...form, sslTemplateId: e.target.value})}
-                                                                className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm"
-                                                                required={form.useSSL && form.sslMode === 'generate'}
-                                                            >
-                                                                <option value="">-- Sélectionner un template --</option>
-                                                                {sslTemplates.map(template => (
-                                                                    <option key={template.id} value={template.id}>
-                                                                        {template.name} ({template.organization || template.country})
-                                                                    </option>
-                                                                ))}
-                                                            </select>
-                                                        </div>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleGenerateCertificate(false)}
-                                                            disabled={!form.domain || !form.sslTemplateId || generatingCert}
-                                                            className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                                                        >
-                                                            {generatingCert ? (
-                                                                <>
-                                                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                                                    Génération...
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <Icon name="zap" size={16} />
-                                                                    Générer le certificat pour {form.domain || '[domaine]'}
-                                                                </>
-                                                            )}
-                                                        </button>
-                                                        {form.sslCertPath && form.sslMode === 'generate' && (
-                                                            <div className="p-2 bg-green-50 border border-green-200 rounded text-sm text-green-700">
-                                                                ✓ Certificat généré avec succès
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-
-                                                <div>
-                                                    <label className="flex items-center gap-2 cursor-pointer">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={form.redirectHTTP}
-                                                            onChange={(e) => setForm({...form, redirectHTTP: e.target.checked})}
-                                                            className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-                                                        />
-                                                        <span className="text-sm text-gray-700">Rediriger HTTP vers HTTPS (301)</span>
-                                                    </label>
-                                                    <p className="text-xs text-gray-500 mt-1 ml-6">Recommandé pour forcer HTTPS</p>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div className="flex gap-3 pt-4">
+                                                                        <NginxConfigFields
+                                        form={form}
+                                        setForm={setForm}
+                                        availableProjects={availableProjects}
+                                        sslCertificates={sslCertificates}
+                                        capabilities={nginxStatus}
+                                        onSelectCertificate={(certId) => handleSslCertificateSelect(certId, false)}
+                                    />
+<div className="flex gap-3 pt-4">
                                         <button
                                             type="button"
                                             onClick={() => setShowCreateModal(false)}
@@ -6762,241 +6978,15 @@
                                     <p className="text-sm text-gray-600 mt-1">{selectedConfig.domain}</p>
                                 </div>
                                 <form onSubmit={handleSaveEditConfig} className="p-6 space-y-6">
-                                    {/* Configuration de base */}
-                                    <div className="space-y-4">
-                                        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                                            <Icon name="settings" size={16} />
-                                            Configuration de base
-                                        </h3>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                    Domaine *
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    value={editForm.domain}
-                                                    onChange={(e) => setEditForm({...editForm, domain: e.target.value})}
-                                                    placeholder="example.com"
-                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                                                    required
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                    Port cible *
-                                                </label>
-                                                <input
-                                                    type="number"
-                                                    value={editForm.port}
-                                                    onChange={(e) => setEditForm({...editForm, port: e.target.value})}
-                                                    placeholder="3000"
-                                                    min="1"
-                                                    max="65535"
-                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                                                    required
-                                                />
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Description
-                                            </label>
-                                            <input
-                                                type="text"
-                                                value={editForm.description}
-                                                onChange={(e) => setEditForm({...editForm, description: e.target.value})}
-                                                placeholder="Mon application"
-                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Projet lié *
-                                            </label>
-                                            <select
-                                                value={editForm.linkedProject}
-                                                onChange={(e) => setEditForm({...editForm, linkedProject: e.target.value})}
-                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                                                required
-                                            >
-                                                <option value="">-- Sélectionner un projet --</option>
-                                                {availableProjects.map(project => (
-                                                    <option key={project.name} value={project.name}>{project.name}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                    </div>
-
-                                    {/* Configuration cible */}
-                                    <div className="space-y-4 pt-4 border-t border-gray-200">
-                                        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                                            <Icon name="target" size={16} />
-                                            Serveur cible
-                                        </h3>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                    Hôte cible
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    value={editForm.targetHost}
-                                                    onChange={(e) => setEditForm({...editForm, targetHost: e.target.value})}
-                                                    placeholder="localhost ou 192.168.1.50"
-                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                                                />
-                                                <p className="text-xs text-gray-500 mt-1">Par défaut: localhost</p>
-                                            </div>
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                    Protocole cible
-                                                </label>
-                                                <select
-                                                    value={editForm.targetProtocol}
-                                                    onChange={(e) => setEditForm({...editForm, targetProtocol: e.target.value})}
-                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                                                >
-                                                    <option value="http">HTTP</option>
-                                                    <option value="https">HTTPS</option>
-                                                </select>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Configuration SSL */}
-                                    <div className="space-y-4 pt-4 border-t border-gray-200">
-                                        <div className="flex items-center justify-between">
-                                            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                                                <Icon name="shield" size={16} />
-                                                SSL/HTTPS
-                                            </h3>
-                                            <label className="flex items-center gap-2 cursor-pointer">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={editForm.useSSL}
-                                                    onChange={(e) => setEditForm({...editForm, useSSL: e.target.checked})}
-                                                    className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-                                                />
-                                                <span className="text-sm text-gray-700">Activer SSL</span>
-                                            </label>
-                                        </div>
-                                        {editForm.useSSL && (
-                                            <div className="space-y-4 pl-4 border-l-2 border-primary-200">
-                                                <div className="flex gap-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setEditForm({...editForm, sslMode: 'select'})}
-                                                        className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
-                                                            editForm.sslMode === 'select'
-                                                                ? 'bg-primary-600 text-white'
-                                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                                        }`}
-                                                    >
-                                                        Sélectionner un certificat
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setEditForm({...editForm, sslMode: 'generate'})}
-                                                        className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
-                                                            editForm.sslMode === 'generate'
-                                                                ? 'bg-primary-600 text-white'
-                                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                                        }`}
-                                                    >
-                                                        Générer automatiquement
-                                                    </button>
-                                                </div>
-
-                                                {editForm.sslMode === 'select' && (
-                                                    <div>
-                                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                            Certificat SSL *
-                                                        </label>
-                                                        <select
-                                                            value={editForm.sslCertId}
-                                                            onChange={(e) => handleSslCertificateSelect(e.target.value, true)}
-                                                            className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm"
-                                                            required={editForm.useSSL && editForm.sslMode === 'select'}
-                                                        >
-                                                            <option value="">-- Sélectionner un certificat --</option>
-                                                            {sslCertificates.map(cert => (
-                                                                <option key={cert.id} value={cert.id}>
-                                                                    {cert.domain} ({cert.organization || 'Sans organisation'})
-                                                                </option>
-                                                            ))}
-                                                        </select>
-                                                        {editForm.sslCertId && (
-                                                            <div className="mt-2 p-2 bg-gray-50 rounded text-xs text-gray-600">
-                                                                <div className="font-mono truncate">Cert: {editForm.sslCertPath}</div>
-                                                                <div className="font-mono truncate">Key: {editForm.sslKeyPath}</div>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-
-                                                {editForm.sslMode === 'generate' && (
-                                                    <div className="space-y-3">
-                                                        <div>
-                                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                                Template *
-                                                            </label>
-                                                            <select
-                                                                value={editForm.sslTemplateId}
-                                                                onChange={(e) => setEditForm({...editForm, sslTemplateId: e.target.value})}
-                                                                className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 text-sm"
-                                                                required={editForm.useSSL && editForm.sslMode === 'generate'}
-                                                            >
-                                                                <option value="">-- Sélectionner un template --</option>
-                                                                {sslTemplates.map(template => (
-                                                                    <option key={template.id} value={template.id}>
-                                                                        {template.name} ({template.organization || template.country})
-                                                                    </option>
-                                                                ))}
-                                                            </select>
-                                                        </div>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleGenerateCertificate(true)}
-                                                            disabled={!editForm.domain || !editForm.sslTemplateId || generatingCert}
-                                                            className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                                                        >
-                                                            {generatingCert ? (
-                                                                <>
-                                                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                                                    Génération...
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <Icon name="zap" size={16} />
-                                                                    Générer le certificat pour {editForm.domain || '[domaine]'}
-                                                                </>
-                                                            )}
-                                                        </button>
-                                                        {editForm.sslCertPath && editForm.sslMode === 'generate' && (
-                                                            <div className="p-2 bg-green-50 border border-green-200 rounded text-sm text-green-700">
-                                                                ✓ Certificat généré avec succès
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-
-                                                <div>
-                                                    <label className="flex items-center gap-2 cursor-pointer">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={editForm.redirectHTTP}
-                                                            onChange={(e) => setEditForm({...editForm, redirectHTTP: e.target.checked})}
-                                                            className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-                                                        />
-                                                        <span className="text-sm text-gray-700">Rediriger HTTP vers HTTPS</span>
-                                                    </label>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div className="flex gap-3 pt-4">
+                                                                        <NginxConfigFields
+                                        form={editForm}
+                                        setForm={setEditForm}
+                                        availableProjects={availableProjects}
+                                        sslCertificates={sslCertificates}
+                                        capabilities={nginxStatus}
+                                        onSelectCertificate={(certId) => handleSslCertificateSelect(certId, true)}
+                                    />
+<div className="flex gap-3 pt-4">
                                         <button
                                             type="button"
                                             onClick={() => {
@@ -7015,6 +7005,32 @@
                                         </button>
                                     </div>
                                 </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {logView && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+                                <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+                                    <div>
+                                        <h2 className="text-xl font-bold text-gray-900">
+                                            {logView.type === 'error' ? 'Journal d\'erreurs' : 'Journal d\'accès'}
+                                        </h2>
+                                        <p className="text-sm text-gray-600 mt-1">{logView.domain}</p>
+                                    </div>
+                                    <button onClick={() => setLogView(null)} className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+                                        <Icon name="x" size={20} />
+                                    </button>
+                                </div>
+                                <div className="p-6">
+                                    <p className="text-xs font-mono text-gray-500 mb-3">{logView.path}</p>
+                                    {logView.missing ? (
+                                        <p className="text-sm text-gray-600">Aucun journal pour le moment. Il sera créé lorsque Nginx recevra du trafic sur ce site.</p>
+                                    ) : (
+                                        <pre className="text-xs bg-gray-50 border border-gray-200 rounded-lg p-3 overflow-auto max-h-[60vh] whitespace-pre-wrap">{logView.content || 'Journal vide'}</pre>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     )}
@@ -7101,6 +7117,27 @@
                                         >
                                             Annuler
                                         </button>
+                                        {isAdmin && (
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    try {
+                                                        const result = await api.post('/api/nginx/global-config/restore', {});
+                                                        if (result.success) {
+                                                            showToast('nginx.conf précédent restauré', 'success');
+                                                            setShowGlobalEditModal(false);
+                                                        } else {
+                                                            showToast(result.error, 'error');
+                                                        }
+                                                    } catch (error) {
+                                                        showToast(error.message, 'error');
+                                                    }
+                                                }}
+                                                className="flex-1 px-4 py-2 border border-amber-300 text-amber-800 rounded-lg hover:bg-amber-50 transition-colors"
+                                            >
+                                                Restaurer la sauvegarde
+                                            </button>
+                                        )}
                                         <button
                                             type="submit"
                                             className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
@@ -7295,7 +7332,20 @@
         // ============================================
         // SSL Page
         // ============================================
+        function sslStatusView(cert) {
+            const status = cert.status || (cert.expiresAt && new Date(cert.expiresAt) > new Date() ? 'valid' : 'expired');
+            const views = {
+                valid: ['Valide', 'bg-green-100 text-green-700'],
+                expiring: ['Bientôt expiré', 'bg-amber-100 text-amber-800'],
+                expired: ['Expiré', 'bg-red-100 text-red-700'],
+                error: ['Erreur', 'bg-red-100 text-red-700']
+            };
+            const view = views[status] || views.error;
+            return { status, label: view[0], className: view[1] };
+        }
+
         function SSLPage({ showToast, currentUser, availableProjects = [] }) {
+            const isAdmin = currentUser?.role === 'admin';
             const [certificates, setCertificates] = useState([]);
             const [templates, setTemplates] = useState([]);
             const [loading, setLoading] = useState(true);
@@ -7305,8 +7355,11 @@
             const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
             const [selectedCert, setSelectedCert] = useState(null);
             const [templateName, setTemplateName] = useState('');
+            const [renewal, setRenewal] = useState(null);
+            const [busyCert, setBusyCert] = useState('');
             const [form, setForm] = useState({
                 domain: '',
+                altDomains: '',
                 linkedProject: '',
                 country: 'FR',
                 state: '',
@@ -7363,7 +7416,17 @@
             useEffect(() => { 
                 loadCertificates(); 
                 loadTemplates();
+                loadRenewal();
             }, [loadCertificates, loadTemplates]);
+
+            async function loadRenewal() {
+                try {
+                    const result = await api.get('/api/ssl/renewal');
+                    if (result.success) setRenewal(result.data);
+                } catch {
+                    setRenewal(null);
+                }
+            }
             useEffect(() => {
                 if (!form.linkedProject && availableProjects.length === 1) {
                     setForm(prev => ({ ...prev, linkedProject: availableProjects[0].name }));
@@ -7383,6 +7446,7 @@
                         setShowCreateModal(false);
                         setForm({
                             domain: '',
+                            altDomains: '',
                             linkedProject: '',
                             country: 'FR',
                             state: '',
@@ -7502,6 +7566,72 @@
                 showToast(`Template "${template.name}" chargé`, 'success');
             }
 
+            async function handleRenew(cert, force) {
+                const verb = force ? 'Forcer le renouvellement' : 'Renouveler';
+                if (!confirm(`${verb} le certificat de "${cert.domain}" ?`)) return;
+                setBusyCert(cert.id);
+                try {
+                    const result = await api.post(`/api/ssl/certificates/${cert.id}/renew`, { force });
+                    if (result.success) {
+                        showToast(force ? 'Certificat renouvelé' : 'Renouvellement exécuté', 'success');
+                        loadCertificates(true);
+                        if (selectedCert?.id === cert.id) setSelectedCert({ ...selectedCert, ...result.data });
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                } finally {
+                    setBusyCert('');
+                }
+            }
+
+            async function handleCheckRenewal(cert) {
+                setBusyCert(cert.id);
+                try {
+                    const result = await api.post(`/api/ssl/certificates/${cert.id}/check`, {});
+                    if (result.success) {
+                        showToast('Le renouvellement peut aboutir', 'success');
+                        loadCertificates(true);
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                } finally {
+                    setBusyCert('');
+                }
+            }
+
+            async function handleShowRenewalLog(cert) {
+                try {
+                    const result = await api.get(`/api/ssl/certificates/${cert.id}/logs`);
+                    if (result.success) {
+                        const details = await api.get(`/api/ssl/certificates/${cert.id}/details`);
+                        setSelectedCert({ ...(details.success ? details.data : cert), renewalLog: result.data });
+                        setShowDetailsModal(true);
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
+            }
+
+            async function handleToggleAutoRenew() {
+                try {
+                    const result = await api.put('/api/ssl/renewal', { enabled: !renewal?.enabled });
+                    if (result.success) {
+                        setRenewal(result.data);
+                        showToast(result.data.enabled ? 'Renouvellement automatique activé' : 'Renouvellement automatique désactivé', 'success');
+                    } else {
+                        showToast(result.error, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
+            }
+
             async function handleDeleteTemplate(templateId) {
                 if (!confirm('Supprimer ce template ?')) return;
 
@@ -7523,7 +7653,20 @@
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                         <div>
                             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Certificats SSL</h1>
-                            <p className="text-sm sm:text-base text-gray-600 mt-1">Gestion des certificats SSL Let's Encrypt</p>
+                            <p className="text-sm sm:text-base text-gray-600 mt-1">Obtention, installation et renouvellement Let's Encrypt</p>
+                            {renewal && (
+                                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                                    <span className={`px-2 py-1 rounded-full font-medium ${renewal.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>
+                                        Renouvellement automatique {renewal.enabled ? 'actif' : 'inactif'}
+                                    </span>
+                                    <span className="text-gray-500">{renewal.detail}</span>
+                                    {isAdmin && renewal.manageable && (
+                                        <button type="button" onClick={handleToggleAutoRenew} className="text-primary-700 hover:underline">
+                                            {renewal.enabled ? 'Désactiver' : 'Activer'}
+                                        </button>
+                                    )}
+                                </div>
+                            )}
                         </div>
                         <div className="flex gap-2">
                             <button
@@ -7569,12 +7712,8 @@
                                             <div className="flex items-center gap-3 mb-2">
                                                 <Icon name="shield" size={20} className="text-primary-600 shrink-0" />
                                                 <h3 className="text-lg font-semibold text-gray-900 truncate">{cert.domain}</h3>
-                                                <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                                                    new Date(cert.expiresAt) > new Date()
-                                                        ? 'bg-green-100 text-green-700' 
-                                                        : 'bg-red-100 text-red-700'
-                                                }`}>
-                                                    {new Date(cert.expiresAt) > new Date() ? 'Valide' : 'Expiré'}
+                                                <span className={`px-2 py-1 text-xs font-medium rounded-full ${sslStatusView(cert).className}`}>
+                                                    {sslStatusView(cert).label}
                                                 </span>
                                             </div>
                                             <div className="flex flex-col gap-2 text-sm text-gray-600">
@@ -7586,8 +7725,21 @@
                                                 )}
                                                 <div className="flex items-center gap-2">
                                                     <Icon name="calendar" size={14} />
-                                                    <span>Expire le {new Date(cert.expiresAt).toLocaleDateString('fr-FR')}</span>
+                                                    <span>
+                                                        Émis le {cert.issuedAt ? new Date(cert.issuedAt).toLocaleDateString('fr-FR') : '—'}
+                                                        {' · '}
+                                                        expire le {cert.expiresAt ? new Date(cert.expiresAt).toLocaleDateString('fr-FR') : '—'}
+                                                    </span>
                                                 </div>
+                                                {Array.isArray(cert.domains) && cert.domains.length > 0 && (
+                                                    <div className="flex items-center gap-2">
+                                                        <Icon name="globe" size={14} />
+                                                        <span className="truncate">{cert.domains.join(', ')}</span>
+                                                    </div>
+                                                )}
+                                                {cert.statusError && (
+                                                    <div className="text-xs text-red-700">{cert.statusError}</div>
+                                                )}
                                                 {cert.organization && (
                                                     <div className="flex items-center gap-2">
                                                         <Icon name="building" size={14} />
@@ -7617,6 +7769,31 @@
                                                 <span className="hidden sm:inline">Détails</span>
                                             </button>
                                             <button
+                                                onClick={() => handleRenew(cert, false)}
+                                                disabled={busyCert === cert.id}
+                                                className="px-3 py-1.5 bg-amber-50 text-amber-800 rounded-lg hover:bg-amber-100 transition-colors text-sm flex items-center gap-1 disabled:opacity-50"
+                                                title="Renouveler"
+                                            >
+                                                <Icon name="refresh-cw" size={14} />
+                                                <span className="hidden sm:inline">Renouveler</span>
+                                            </button>
+                                            <button
+                                                onClick={() => handleCheckRenewal(cert)}
+                                                disabled={busyCert === cert.id}
+                                                className="px-3 py-1.5 bg-sky-50 text-sky-800 rounded-lg hover:bg-sky-100 transition-colors text-sm flex items-center gap-1 disabled:opacity-50"
+                                                title="Vérifier le renouvellement"
+                                            >
+                                                <Icon name="check-circle" size={14} />
+                                                <span className="hidden sm:inline">Vérifier</span>
+                                            </button>
+                                            <button
+                                                onClick={() => handleShowRenewalLog(cert)}
+                                                className="px-3 py-1.5 bg-gray-50 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors text-sm flex items-center gap-1"
+                                                title="Journal de renouvellement"
+                                            >
+                                                <Icon name="scroll-text" size={14} />
+                                            </button>
+                                            <button
                                                 onClick={() => handleDownload(cert, 'cert')}
                                                 className="px-3 py-1.5 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-colors text-sm flex items-center gap-1"
                                                 title="Télécharger le certificat"
@@ -7624,14 +7801,16 @@
                                                 <Icon name="download" size={14} />
                                                 <span className="hidden sm:inline">Cert</span>
                                             </button>
-                                            <button
-                                                onClick={() => handleDownload(cert, 'key')}
-                                                className="px-3 py-1.5 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition-colors text-sm flex items-center gap-1"
-                                                title="Télécharger la clé privée"
-                                            >
-                                                <Icon name="download" size={14} />
-                                                <span className="hidden sm:inline">Clé</span>
-                                            </button>
+                                            {isAdmin && (
+                                                <button
+                                                    onClick={() => handleDownload(cert, 'key')}
+                                                    className="px-3 py-1.5 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition-colors text-sm flex items-center gap-1"
+                                                    title="Télécharger la clé privée"
+                                                >
+                                                    <Icon name="download" size={14} />
+                                                    <span className="hidden sm:inline">Clé</span>
+                                                </button>
+                                            )}
                                             <button
                                                 onClick={() => handleDelete(cert)}
                                                 className="px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors text-sm flex items-center gap-1"
@@ -7663,11 +7842,22 @@
                                             type="text"
                                             value={form.domain}
                                             onChange={(e) => setForm({...form, domain: e.target.value})}
-                                            placeholder="example.com ou *.example.com"
+                                            placeholder="exemple.fr"
                                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                                             required
                                         />
-                                        <p className="text-xs text-gray-500 mt-1">Le domaine doit pointer vers ce serveur (validation HTTP Let's Encrypt)</p>
+                                        <p className="text-xs text-gray-500 mt-1">Le domaine doit pointer vers ce serveur. Certbot valide le défi HTTP sur le port 80.</p>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Domaines supplémentaires</label>
+                                        <input
+                                            type="text"
+                                            value={form.altDomains || ''}
+                                            onChange={(e) => setForm({...form, altDomains: e.target.value})}
+                                            placeholder="www.exemple.fr, app.exemple.fr"
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                        />
+                                        <p className="text-xs text-gray-500 mt-1">Noms couverts par le même certificat, séparés par des virgules.</p>
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -7781,7 +7971,7 @@
                                             max="3650"
                                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                                         />
-                                        <p className="text-xs text-gray-500 mt-1">Recommandé: 365 jours (1 an)</p>
+                                        <p className="text-xs text-gray-500 mt-1">Let's Encrypt fixe la durée, environ 90 jours. Ce champ est seulement mémorisé dans les templates.</p>
                                     </div>
 
                                     <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
@@ -7986,22 +8176,28 @@
                                         </div>
                                         <div>
                                             <label className="block text-xs font-medium text-gray-500 mb-1">Statut</label>
-                                            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                                                new Date(selectedCert.expiresAt) > new Date()
-                                                    ? 'bg-green-100 text-green-700' 
-                                                    : 'bg-red-100 text-red-700'
-                                            }`}>
-                                                {new Date(selectedCert.expiresAt) > new Date() ? 'Valide' : 'Expiré'}
+                                            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${sslStatusView(selectedCert).className}`}>
+                                                {sslStatusView(selectedCert).label}
                                             </span>
                                         </div>
                                         <div>
-                                            <label className="block text-xs font-medium text-gray-500 mb-1">Créé le</label>
-                                            <p className="text-sm text-gray-900">{new Date(selectedCert.createdAt).toLocaleString('fr-FR')}</p>
+                                            <label className="block text-xs font-medium text-gray-500 mb-1">Émis le</label>
+                                            <p className="text-sm text-gray-900">{selectedCert.issuedAt ? new Date(selectedCert.issuedAt).toLocaleString('fr-FR') : '—'}</p>
                                         </div>
                                         <div>
                                             <label className="block text-xs font-medium text-gray-500 mb-1">Expire le</label>
-                                            <p className="text-sm text-gray-900">{new Date(selectedCert.expiresAt).toLocaleString('fr-FR')}</p>
+                                            <p className="text-sm text-gray-900">{selectedCert.expiresAt ? new Date(selectedCert.expiresAt).toLocaleString('fr-FR') : '—'}</p>
                                         </div>
+                                        <div className="sm:col-span-2">
+                                            <label className="block text-xs font-medium text-gray-500 mb-1">Domaines couverts</label>
+                                            <p className="text-sm text-gray-900">{(selectedCert.domains || [selectedCert.domain]).join(', ')}</p>
+                                        </div>
+                                        {selectedCert.statusError && (
+                                            <div className="sm:col-span-2">
+                                                <label className="block text-xs font-medium text-red-600 mb-1">Erreur</label>
+                                                <p className="text-sm text-red-700 whitespace-pre-wrap">{selectedCert.statusError}</p>
+                                            </div>
+                                        )}
                                         {selectedCert.organization && (
                                             <div>
                                                 <label className="block text-xs font-medium text-gray-500 mb-1">Organisation</label>
@@ -8028,6 +8224,19 @@
                                         <div className="bg-gray-50 rounded-lg p-3 font-mono text-xs text-gray-900 break-all">
                                             {selectedCert.keyPath}
                                         </div>
+                                    </div>
+
+                                    {selectedCert.renewalLog && (
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-500 mb-2">Journal de renouvellement</label>
+                                            <pre className="w-full max-h-48 overflow-auto px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg font-mono text-xs whitespace-pre-wrap">{selectedCert.renewalLog}</pre>
+                                        </div>
+                                    )}
+
+                                    <div className="flex flex-wrap gap-2">
+                                        <button type="button" onClick={() => handleRenew(selectedCert, false)} className="px-3 py-1.5 bg-amber-50 text-amber-800 rounded-lg text-sm">Renouveler</button>
+                                        <button type="button" onClick={() => handleRenew(selectedCert, true)} className="px-3 py-1.5 bg-amber-100 text-amber-900 rounded-lg text-sm">Forcer le renouvellement</button>
+                                        <button type="button" onClick={() => handleCheckRenewal(selectedCert)} className="px-3 py-1.5 bg-sky-50 text-sky-800 rounded-lg text-sm">Vérifier le renouvellement</button>
                                     </div>
 
                                     {selectedCert.certContent && (
